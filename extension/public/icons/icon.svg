@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- dbui: a database cylinder whose face is a data grid; the amber cell is a pending edit. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1590ae"/>
+      <stop offset="1" stop-color="#0a5d76"/>
+    </linearGradient>
+    <clipPath id="body">
+      <path d="M32 38 v52 a32 11 0 0 0 64 0 v-52 a32 11 0 0 1 -64 0 z"/>
+    </clipPath>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#tile)"/>
+  <rect x="8.5" y="8.5" width="111" height="111" rx="25.5" fill="none" stroke="#ffffff" stroke-opacity=".14"/>
+  <!-- body -->
+  <path d="M32 38 v52 a32 11 0 0 0 64 0 v-52" fill="#f4fbfd"/>
+  <g clip-path="url(#body)">
+    <!-- amber cell: middle row, right column -->
+    <path d="M75 65.3 a32 11 0 0 0 21 -10.3 v17 a32 11 0 0 1 -21 10.3 z" fill="#f2b33d"/>
+    <!-- row bands follow the curve -->
+    <path d="M32 55 a32 11 0 0 0 64 0" fill="none" stroke="#0b6e8a" stroke-width="3"/>
+    <path d="M32 72 a32 11 0 0 0 64 0" fill="none" stroke="#0b6e8a" stroke-width="3"/>
+    <!-- column lines -->
+    <path d="M53 48 v52" stroke="#0b6e8a" stroke-width="3"/>
+    <path d="M75 48 v52" stroke="#0b6e8a" stroke-width="3"/>
+  </g>
+  <!-- top lid -->
+  <ellipse cx="64" cy="38" rx="32" ry="11" fill="#ffffff"/>
+  <ellipse cx="64" cy="38" rx="32" ry="11" fill="none" stroke="#0b6e8a" stroke-opacity=".35" stroke-width="2"/>
+</svg>
