@@ -1,0 +1,25 @@
+{
+  "kind": "bigquery#projectList",
+  "etag": "abc==",
+  "projects": [
+    {
+      "kind": "bigquery#project",
+      "id": "dbui-test",
+      "numericId": "123456789012",
+      "projectReference": {
+        "projectId": "dbui-test"
+      },
+      "friendlyName": "dbui test"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "other-proj",
+      "numericId": "223456789012",
+      "projectReference": {
+        "projectId": "other-proj"
+      },
+      "friendlyName": "other-proj"
+    }
+  ],
+  "totalItems": 2
+}

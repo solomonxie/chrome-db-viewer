@@ -1,0 +1,203 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "mode": "REQUIRED"
+      },
+      {
+        "name": "amount",
+        "type": "NUMERIC",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "score",
+        "type": "FLOAT",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "active",
+        "type": "BOOLEAN",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "created_at",
+        "type": "TIMESTAMP",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "day",
+        "type": "DATE",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "tags",
+        "type": "STRING",
+        "mode": "REPEATED"
+      },
+      {
+        "name": "address",
+        "type": "RECORD",
+        "mode": "NULLABLE",
+        "fields": [
+          {
+            "name": "city",
+            "type": "STRING",
+            "mode": "NULLABLE"
+          },
+          {
+            "name": "zip",
+            "type": "INTEGER",
+            "mode": "NULLABLE"
+          }
+        ]
+      },
+      {
+        "name": "items",
+        "type": "RECORD",
+        "mode": "REPEATED",
+        "fields": [
+          {
+            "name": "sku",
+            "type": "STRING",
+            "mode": "NULLABLE"
+          },
+          {
+            "name": "qty",
+            "type": "INTEGER",
+            "mode": "NULLABLE"
+          }
+        ]
+      },
+      {
+        "name": "meta",
+        "type": "JSON",
+        "mode": "NULLABLE"
+      }
+    ]
+  },
+  "jobReference": {
+    "projectId": "dbui-test",
+    "jobId": "job_a1B2c3D4e5F6g7H8",
+    "location": "US"
+  },
+  "totalRows": "3",
+  "pageToken": "BFKJ3HHVXIAQAAASA4EAAEEAQCAAKGQEBCFACBMQCAA",
+  "rows": [
+    {
+      "f": [
+        {
+          "v": "9223372036854775807"
+        },
+        {
+          "v": "12345678901234567890.123456789"
+        },
+        {
+          "v": "0.5"
+        },
+        {
+          "v": "true"
+        },
+        {
+          "v": "1700000000123456"
+        },
+        {
+          "v": "2024-03-01"
+        },
+        {
+          "v": [
+            {
+              "v": "a"
+            },
+            {
+              "v": "b"
+            }
+          ]
+        },
+        {
+          "v": {
+            "f": [
+              {
+                "v": "Berlin"
+              },
+              {
+                "v": "10115"
+              }
+            ]
+          }
+        },
+        {
+          "v": [
+            {
+              "v": {
+                "f": [
+                  {
+                    "v": "A-1"
+                  },
+                  {
+                    "v": "2"
+                  }
+                ]
+              }
+            },
+            {
+              "v": {
+                "f": [
+                  {
+                    "v": "B-2"
+                  },
+                  {
+                    "v": "1"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "v": "{\"k\":1,\"n\":[1,2]}"
+        }
+      ]
+    },
+    {
+      "f": [
+        {
+          "v": "2"
+        },
+        {
+          "v": null
+        },
+        {
+          "v": "-1.25E10"
+        },
+        {
+          "v": "false"
+        },
+        {
+          "v": null
+        },
+        {
+          "v": null
+        },
+        {
+          "v": []
+        },
+        {
+          "v": null
+        },
+        {
+          "v": []
+        },
+        {
+          "v": null
+        }
+      ]
+    }
+  ],
+  "totalBytesProcessed": "1048576",
+  "jobComplete": true,
+  "cacheHit": false,
+  "totalBytesBilled": "10485760"
+}

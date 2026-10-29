@@ -1,0 +1,125 @@
+// Small promise wrapper over IndexedDB. One database, a few object stores, keyed by `id`.
+// Holds connection settings (minus secrets), history, saved queries and recent file handles.
+
+import type { ConnectionConfig } from "@core/types";
+
+const DB_NAME = "dbui";
+const DB_VERSION = 2;
+
+export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles";
+
+export interface SavedConnection extends ConnectionConfig {
+  group?: string;
+  createdAt: number;
+  lastUsedAt?: number;
+}
+
+export interface HistoryEntry {
+  id: string;
+  connectionId: string;
+  sql: string;
+  at: number;
+  ms?: number;
+  rows?: number;
+  error?: string;
+}
+
+export interface SavedQuery {
+  id: string;
+  connectionId: string;
+  name: string;
+  sql: string;
+  updatedAt: number;
+}
+
+export interface RecentFile {
+  id: string;
+  name: string;
+  /** FileSystemFileHandle (structured-cloneable) or a URL opened via ?src=. */
+  handle?: FileSystemFileHandle;
+  src?: string;
+  size?: number;
+  openedAt: number;
+}
+
+/** A picked file kept for a connection (DuckDB/SQLite file, BigQuery key), by id. */
+export interface StoredHandle {
+  id: string;
+  handle: FileSystemFileHandle;
+  name: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  order: number;
+}
+
+type Row<S extends StoreName> = S extends "connections"
+  ? SavedConnection
+  : S extends "history"
+    ? HistoryEntry
+    : S extends "queries"
+      ? SavedQuery
+      : S extends "recentFiles"
+        ? RecentFile
+        : S extends "handles"
+          ? StoredHandle
+          : Group;
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function open(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const name of ["connections", "queries", "recentFiles", "groups", "handles"]) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("history")) {
+        db.createObjectStore("history", { keyPath: "id" }).createIndex("connectionId", "connectionId");
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+function wrap<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function tx<S extends StoreName>(name: S, mode: IDBTransactionMode): Promise<IDBObjectStore> {
+  const db = await open();
+  return db.transaction(name, mode).objectStore(name);
+}
+
+export async function getAll<S extends StoreName>(name: S): Promise<Row<S>[]> {
+  return wrap((await tx(name, "readonly")).getAll()) as Promise<Row<S>[]>;
+}
+
+export async function get<S extends StoreName>(name: S, id: string): Promise<Row<S> | undefined> {
+  return wrap((await tx(name, "readonly")).get(id)) as Promise<Row<S> | undefined>;
+}
+
+export async function put<S extends StoreName>(name: S, row: Row<S>): Promise<void> {
+  await wrap((await tx(name, "readwrite")).put(row));
+}
+
+export async function del(name: StoreName, id: string): Promise<void> {
+  await wrap((await tx(name, "readwrite")).delete(id));
+}
+
+export async function historyFor(connectionId: string, limit = 500): Promise<HistoryEntry[]> {
+  const store = await tx("history", "readonly");
+  const rows = (await wrap(store.index("connectionId").getAll(connectionId))) as HistoryEntry[];
+  return rows.sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+export const uid = (prefix = "") => prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 10);

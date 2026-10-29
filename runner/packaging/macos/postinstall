@@ -1,0 +1,58 @@
+#!/bin/bash
+# pkg postinstall: writes the native messaging host manifest, with the absolute path of the
+# runner in this user's home, into every Chromium-family browser folder that exists.
+# The package is per-user (enable_currentUserHome), so this runs as the installing user and
+# $HOME / $2 point at their home folder.
+set -euo pipefail
+
+# $2 is the install location (the user's home for a CurrentUserHomeDirectory install).
+target_home="${2:-$HOME}"
+[[ -d "$target_home/Library" ]] || target_home="$HOME"
+
+app_dir="$target_home/Library/Application Support/dbui"
+runner="$app_dir/dbui-runner"
+template="$app_dir/com.dbui.runner.json.template"
+extension_ids_file="$app_dir/extension-ids"
+
+if [[ ! -x "$runner" ]]; then
+  echo "dbui postinstall: $runner is missing" >&2
+  exit 1
+fi
+
+origins=""
+while IFS= read -r ext_id; do
+  [[ -z "$ext_id" || "$ext_id" == \#* ]] && continue
+  origins+="${origins:+, }\"chrome-extension://$ext_id/\""
+done < "$extension_ids_file"
+
+manifest="$(sed -e "s|__RUNNER_PATH__|$runner|" \
+                -e "s|\[\"chrome-extension://__EXTENSION_ID__/\"\]|[$origins]|" "$template")"
+
+browsers=(
+  "Google/Chrome"
+  "Google/Chrome Beta"
+  "Google/Chrome Canary"
+  "Microsoft Edge"
+  "BraveSoftware/Brave-Browser"
+  "Arc/User Data"
+  "Chromium"
+)
+written=0
+for b in "${browsers[@]}"; do
+  base="$target_home/Library/Application Support/$b"
+  [[ -d "$base" ]] || continue
+  mkdir -p "$base/NativeMessagingHosts"
+  printf '%s\n' "$manifest" > "$base/NativeMessagingHosts/com.dbui.runner.json"
+  echo "dbui postinstall: wrote $base/NativeMessagingHosts/com.dbui.runner.json"
+  written=$((written + 1))
+done
+
+if [[ "$written" == 0 ]]; then
+  # No browser profile yet: install for Chrome anyway so it works after first launch.
+  base="$target_home/Library/Application Support/Google/Chrome"
+  mkdir -p "$base/NativeMessagingHosts"
+  printf '%s\n' "$manifest" > "$base/NativeMessagingHosts/com.dbui.runner.json"
+fi
+
+mkdir -p "$target_home/Library/Logs/dbui"
+exit 0

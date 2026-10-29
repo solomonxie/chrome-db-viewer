@@ -1,0 +1,8 @@
+SET greeting "hello world"
+SET counter 41
+HSET session:1 user ada role admin theme dark
+HSET session:2 user bob role viewer
+EXPIRE session:2 3600
+RPUSH queue:jobs job-1 job-2 job-3
+SADD tags red green blue
+ZADD leaderboard 100 ada 85.5 bob 70 cy

@@ -1,0 +1,7 @@
+{
+  "name": "com.dbui.runner",
+  "description": "dbui database runner",
+  "path": "__RUNNER_PATH__",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
+}

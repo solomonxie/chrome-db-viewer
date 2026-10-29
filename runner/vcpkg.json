@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "dbui-runner",
+  "version": "0.1.0",
+  "description": "Native messaging host for dbui (Postgres and Redis)",
+  "dependencies": [
+    {
+      "name": "libpq",
+      "default-features": false,
+      "features": [
+        "openssl"
+      ]
+    },
+    "hiredis",
+    "nlohmann-json",
+    "openssl",
+    "libssh2",
+    "catch2"
+  ]
+}

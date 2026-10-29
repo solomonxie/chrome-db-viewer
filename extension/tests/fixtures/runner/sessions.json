@@ -1,0 +1,517 @@
+{
+  "_comment": "Recorded from dbui-runner by runner/tests/integration/record_fixture.py. Do not edit by hand.",
+  "postgres": [
+    {
+      "request": {
+        "op": "hello",
+        "client": "0.1.0"
+      },
+      "responses": [
+        {
+          "drivers": [
+            "postgres",
+            "redis"
+          ],
+          "protocol": 1,
+          "runner": "0.1.0",
+          "type": "hello"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "connect",
+        "conn": {
+          "driver": "postgres",
+          "host": "127.0.0.1",
+          "port": 15432,
+          "user": "postgres",
+          "database": "dbui",
+          "readOnly": false
+        }
+      },
+      "responses": [
+        {
+          "server": "PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2)",
+          "type": "ok"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "listObjects",
+        "parent": []
+      },
+      "responses": [
+        {
+          "nodes": [
+            {
+              "hasChildren": true,
+              "meta": "0",
+              "name": "public",
+              "path": [
+                "public"
+              ],
+              "type": "schema"
+            },
+            {
+              "hasChildren": true,
+              "meta": "4",
+              "name": "shop",
+              "path": [
+                "shop"
+              ],
+              "type": "schema"
+            },
+            {
+              "hasChildren": true,
+              "meta": "69",
+              "name": "information_schema",
+              "path": [
+                "information_schema"
+              ],
+              "type": "schema"
+            },
+            {
+              "hasChildren": true,
+              "meta": "142",
+              "name": "pg_catalog",
+              "path": [
+                "pg_catalog"
+              ],
+              "type": "schema"
+            }
+          ],
+          "type": "objects"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "listObjects",
+        "parent": [
+          "shop",
+          "tables"
+        ]
+      },
+      "responses": [
+        {
+          "nodes": [
+            {
+              "hasChildren": false,
+              "name": "customers",
+              "path": [
+                "shop",
+                "tables",
+                "customers"
+              ],
+              "type": "table"
+            },
+            {
+              "hasChildren": false,
+              "name": "events",
+              "path": [
+                "shop",
+                "tables",
+                "events"
+              ],
+              "type": "table"
+            },
+            {
+              "hasChildren": false,
+              "name": "orders",
+              "path": [
+                "shop",
+                "tables",
+                "orders"
+              ],
+              "type": "table"
+            }
+          ],
+          "type": "objects"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "describe",
+        "path": [
+          "shop",
+          "tables",
+          "customers"
+        ]
+      },
+      "responses": [
+        {
+          "schema": {
+            "columns": [
+              {
+                "default": "nextval('shop.customers_id_seq'::regclass)",
+                "name": "id",
+                "nullable": false,
+                "primaryKey": true,
+                "type": "bigint"
+              },
+              {
+                "default": null,
+                "name": "email",
+                "nullable": false,
+                "type": "text"
+              },
+              {
+                "default": null,
+                "name": "name",
+                "nullable": true,
+                "type": "text"
+              },
+              {
+                "default": "'2024-01-01 00:00:00+00'::timestamp with time zone",
+                "name": "created_at",
+                "nullable": false,
+                "type": "timestamp with time zone"
+              }
+            ],
+            "ddl": "CREATE TABLE \"shop\".\"customers\" (\n  \"id\" bigint DEFAULT nextval('shop.customers_id_seq'::regclass) NOT NULL,\n  \"email\" text NOT NULL,\n  \"name\" text,\n  \"created_at\" timestamp with time zone DEFAULT '2024-01-01 00:00:00+00'::timestamp with time zone NOT NULL,\n  CONSTRAINT \"customers_pkey\" PRIMARY KEY (id),\n  CONSTRAINT \"customers_email_key\" UNIQUE (email)\n);\nCREATE UNIQUE INDEX customers_email_key ON shop.customers USING btree (email);",
+            "indexes": [
+              {
+                "columns": [
+                  "id"
+                ],
+                "definition": "CREATE UNIQUE INDEX customers_pkey ON shop.customers USING btree (id)",
+                "name": "customers_pkey",
+                "primary": true,
+                "unique": true
+              },
+              {
+                "columns": [
+                  "email"
+                ],
+                "definition": "CREATE UNIQUE INDEX customers_email_key ON shop.customers USING btree (email)",
+                "name": "customers_email_key",
+                "primary": false,
+                "unique": true
+              }
+            ],
+            "info": {
+              "estimated rows": "0",
+              "kind": "table",
+              "size": "48 kB"
+            },
+            "path": [
+              "shop",
+              "tables",
+              "customers"
+            ]
+          },
+          "type": "schema"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "execute",
+        "sql": "select id, total, paid, qty, weight, meta from shop.orders order by id",
+        "pageSize": 2
+      },
+      "responses": [
+        {
+          "cols": [
+            {
+              "name": "id",
+              "nullable": true,
+              "type": "int8"
+            },
+            {
+              "name": "total",
+              "nullable": true,
+              "type": "numeric"
+            },
+            {
+              "name": "paid",
+              "nullable": true,
+              "type": "bool"
+            },
+            {
+              "name": "qty",
+              "nullable": true,
+              "type": "int4"
+            },
+            {
+              "name": "weight",
+              "nullable": true,
+              "type": "float8"
+            },
+            {
+              "name": "meta",
+              "nullable": true,
+              "type": "jsonb"
+            }
+          ],
+          "type": "columns"
+        },
+        {
+          "type": "page",
+          "seq": 0,
+          "rows": [
+            [
+              "1",
+              "12.50",
+              true,
+              2,
+              1.25,
+              {
+                "source": "web",
+                "tags": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            [
+              "2",
+              "99.99",
+              false,
+              1,
+              null,
+              null
+            ]
+          ]
+        },
+        {
+          "type": "page",
+          "seq": 1,
+          "rows": [
+            [
+              "3",
+              "9007199254740993.10",
+              true,
+              3,
+              0.5,
+              {
+                "source": "app"
+              }
+            ]
+          ]
+        },
+        {
+          "ms": 5,
+          "rowCount": 3,
+          "type": "done"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "execute",
+        "sql": "select * from shop.nope",
+        "pageSize": 2000
+      },
+      "responses": [
+        {
+          "code": "42P01",
+          "message": "relation \"shop.nope\" does not exist\nPOSITION: 15",
+          "type": "error"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "execute",
+        "sql": "select pg_sleep(30)",
+        "pageSize": 2000
+      },
+      "responses": [],
+      "afterCancel": [
+        {
+          "code": "CANCELLED",
+          "message": "canceling statement due to user request",
+          "type": "error"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "cancel",
+        "target": "<previous>"
+      },
+      "responses": [
+        {
+          "cancelled": true,
+          "type": "ok"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "apply",
+        "statements": [
+          {
+            "sql": "UPDATE \"shop\".\"customers\" SET \"name\" = $1 WHERE \"id\" = $2",
+            "params": [
+              "Bobby",
+              "2"
+            ]
+          },
+          {
+            "sql": "DELETE FROM \"shop\".\"customers\" WHERE \"id\" = $1",
+            "params": [
+              "3"
+            ]
+          }
+        ]
+      },
+      "responses": [
+        {
+          "applied": 2,
+          "ms": 5,
+          "type": "ok"
+        }
+      ]
+    }
+  ],
+  "redis": [
+    {
+      "request": {
+        "op": "hello",
+        "client": "0.1.0"
+      },
+      "responses": [
+        {
+          "drivers": [
+            "postgres",
+            "redis"
+          ],
+          "protocol": 1,
+          "runner": "0.1.0",
+          "type": "hello"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "connect",
+        "conn": {
+          "driver": "redis",
+          "host": "127.0.0.1",
+          "port": 16379,
+          "readOnly": false
+        }
+      },
+      "responses": [
+        {
+          "server": "Redis 7.4.12",
+          "type": "ok"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "listObjects",
+        "parent": [
+          "session:"
+        ]
+      },
+      "responses": [
+        {
+          "nodes": [
+            {
+              "hasChildren": false,
+              "meta": "hash",
+              "name": "session:1",
+              "path": [
+                "session:1"
+              ],
+              "type": "key"
+            },
+            {
+              "hasChildren": false,
+              "meta": "hash · ttl 59m",
+              "name": "session:2",
+              "path": [
+                "session:2"
+              ],
+              "type": "key"
+            }
+          ],
+          "type": "objects"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "execute",
+        "sql": "HGETALL session:1",
+        "pageSize": 2000
+      },
+      "responses": [
+        {
+          "cols": [
+            {
+              "name": "field",
+              "nullable": true,
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "nullable": true,
+              "type": "string"
+            }
+          ],
+          "type": "columns"
+        },
+        {
+          "type": "page",
+          "seq": 0,
+          "rows": [
+            [
+              "user",
+              "ada"
+            ],
+            [
+              "role",
+              "admin"
+            ],
+            [
+              "theme",
+              "dark"
+            ]
+          ]
+        },
+        {
+          "ms": 5,
+          "rowCount": 3,
+          "type": "done"
+        }
+      ]
+    },
+    {
+      "request": {
+        "op": "apply",
+        "statements": [
+          {
+            "sql": "HSET",
+            "params": [
+              "session:1",
+              "theme",
+              "light"
+            ]
+          },
+          {
+            "sql": "HDEL",
+            "params": [
+              "session:1",
+              "role"
+            ]
+          }
+        ]
+      },
+      "responses": [
+        {
+          "applied": 2,
+          "ms": 5,
+          "type": "ok"
+        }
+      ]
+    }
+  ]
+}

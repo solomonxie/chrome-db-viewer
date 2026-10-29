@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Query exceeded limit for bytes billed: 10737418240. 21474836480 or higher required.",
+    "errors": [
+      {
+        "message": "Query exceeded limit for bytes billed: 10737418240. 21474836480 or higher required.",
+        "domain": "global",
+        "reason": "bytesBilledLimitExceeded"
+      }
+    ],
+    "status": "INVALID_ARGUMENT"
+  }
+}

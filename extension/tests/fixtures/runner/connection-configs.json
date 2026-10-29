@@ -1,0 +1,18 @@
+{
+  "sessionPassword": {
+    "id": "c_5e1a2b3c4d", "name": "Shop Replica", "driver": "postgres", "env": "production", "readOnly": true,
+    "secretRef": "c_5e1a2b3c4d",
+    "options": { "host": "localhost", "port": 5432, "user": "app_reader", "database": "shop", "sslmode": "prefer",
+                 "secretMode": "session", "secret": "typed-this-session" }
+  },
+  "keychainNoInline": {
+    "id": "c_9a1", "name": "PG Keychain", "driver": "postgres", "env": "dev", "readOnly": false,
+    "secretRef": "c_9a1",
+    "options": { "host": "db.internal", "port": "6432", "user": "app", "database": "shop", "secretMode": "keychain" }
+  },
+  "sessionNoSecretYet": {
+    "id": "c_7f2", "name": "PG No Secret", "driver": "postgres", "env": "local", "readOnly": false,
+    "secretRef": "c_7f2",
+    "options": { "host": "127.0.0.1", "port": 15432, "user": "dbui", "database": "shop", "secretMode": "session" }
+  }
+}

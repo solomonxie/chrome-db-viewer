@@ -1,0 +1,58 @@
+/* Design tokens, copied from design/mockup.html. Light by default, dark via prefers-color-scheme or data-theme. */
+:root {
+  --bg: #e7ebef;
+  --chrome: #dde3e9;
+  --chrome-tab: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #f3f6f8;
+  --line: #d6dde3;
+  --line-soft: #e8edf1;
+  --fg: #16212b;
+  --muted: #5c6b78;
+  --faint: #8a97a3;
+  --accent: #0b6e8a;
+  --accent-soft: #dcf0f5;
+  --accent-fg: #ffffff;
+  --sel: #e3f1f6;
+  --env-prod: #c4352b;
+  --env-stage: #b7791f;
+  --env-dev: #2f6fd6;
+  --env-local: #6b7a87;
+  --edit-bg: #fff3cf;
+  --edit-fg: #7a5200;
+  --add-bg: #e1f5e6;
+  --add-fg: #1f6b35;
+  --del-bg: #fde4e1;
+  --del-fg: #a3271f;
+  --kw: #8a3ab9;
+  --str: #1f7a4d;
+  --num: #b4540a;
+  --bar: #3a8fa6;
+  --bar-track: #e8edf1;
+  --curcol: #eef6f9;
+  --shadow: 0 10px 30px rgba(22, 33, 43, .14);
+  --check-a: #ffffff;
+  --check-b: #e2e7eb;
+  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1318; --chrome: #1a232b; --chrome-tab: #222d36; --surface: #151d24; --surface-2: #1b252d;
+    --line: #2b3843; --line-soft: #222d36; --fg: #e3eaf0; --muted: #9aa9b5; --faint: #6d7c88;
+    --accent: #3fb6d3; --accent-soft: #143845; --accent-fg: #071a21; --sel: #16323d;
+    --env-prod: #ef6a5f; --env-stage: #e0a748; --env-dev: #6f9df0; --env-local: #8e9ca8;
+    --edit-bg: #3d3112; --edit-fg: #f3cf75; --add-bg: #15361f; --add-fg: #86d79c; --del-bg: #43201d; --del-fg: #f39a91;
+    --kw: #d08cf2; --str: #7fd3a4; --num: #f0a45d; --bar: #3fb6d3; --bar-track: #26323c; --curcol: #18272f; --shadow: 0 10px 30px rgba(0,0,0,.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1318; --chrome: #1a232b; --chrome-tab: #222d36; --surface: #151d24; --surface-2: #1b252d;
+  --line: #2b3843; --line-soft: #222d36; --fg: #e3eaf0; --muted: #9aa9b5; --faint: #6d7c88;
+  --accent: #3fb6d3; --accent-soft: #143845; --accent-fg: #071a21; --sel: #16323d;
+  --env-prod: #ef6a5f; --env-stage: #e0a748; --env-dev: #6f9df0; --env-local: #8e9ca8;
+  --edit-bg: #3d3112; --edit-fg: #f3cf75; --add-bg: #15361f; --add-fg: #86d79c; --del-bg: #43201d; --del-fg: #f39a91;
+  --kw: #d08cf2; --str: #7fd3a4; --num: #f0a45d; --bar: #3fb6d3; --bar-track: #26323c; --curcol: #18272f; --shadow: 0 10px 30px rgba(0,0,0,.45);
+  color-scheme: dark;
+}

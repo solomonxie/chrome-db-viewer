@@ -1,0 +1,48 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [
+      {
+        "name": "table_id",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "size_bytes",
+        "type": "INTEGER",
+        "mode": "NULLABLE"
+      }
+    ]
+  },
+  "jobReference": {
+    "projectId": "dbui-test",
+    "jobId": "job_meta1",
+    "location": "US"
+  },
+  "totalRows": "2",
+  "rows": [
+    {
+      "f": [
+        {
+          "v": "orders"
+        },
+        {
+          "v": "1288490188"
+        }
+      ]
+    },
+    {
+      "f": [
+        {
+          "v": "orders_v"
+        },
+        {
+          "v": "0"
+        }
+      ]
+    }
+  ],
+  "totalBytesProcessed": "0",
+  "jobComplete": true,
+  "cacheHit": false
+}

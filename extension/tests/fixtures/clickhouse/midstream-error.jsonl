@@ -1,0 +1,32 @@
+["number", "b"]
+["UInt64", "UInt8"]
+["199976", 0]
+["199977", 0]
+["199978", 0]
+["199979", 0]
+["199980", 0]
+["199981", 0]
+["199982", 0]
+["199983", 0]
+["199984", 0]
+["199985", 0]
+["199986", 0]
+["199987", 0]
+["199988", 0]
+["199989", 0]
+["199990", 0]
+["199991", 0]
+["199992", 0]
+["199993", 0]
+["199994", 0]
+["199995", 0]
+["199996", 0]
+["199997", 0]
+["199998", 0]
+["199999", 0]
+
+__exception__
+munftxifhrxrntsr
+Code: 395. DB::Exception: boom: while executing 'FUNCTION throwIf(equals(__table1.number, 200000_UInt32) :: 0, 'boom'_String :: 2) -> throwIf(equals(__table1.number, 200000_UInt32), 'boom'_String) UInt8 : 3'. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO) (version 26.10.3.7 (official build))
+284 munftxifhrxrntsr
+__exception__

@@ -1,0 +1,41 @@
+{
+  "kind": "bigquery#tableList",
+  "etag": "ghi==",
+  "tables": [
+    {
+      "kind": "bigquery#table",
+      "id": "dbui-test:shop.orders",
+      "tableReference": {
+        "projectId": "dbui-test",
+        "datasetId": "shop",
+        "tableId": "orders"
+      },
+      "type": "TABLE",
+      "timePartitioning": {
+        "type": "DAY",
+        "field": "created_at"
+      },
+      "clustering": {
+        "fields": [
+          "id"
+        ]
+      },
+      "creationTime": "1700000000000"
+    },
+    {
+      "kind": "bigquery#table",
+      "id": "dbui-test:shop.orders_v",
+      "tableReference": {
+        "projectId": "dbui-test",
+        "datasetId": "shop",
+        "tableId": "orders_v"
+      },
+      "type": "VIEW",
+      "view": {
+        "useLegacySql": false
+      },
+      "creationTime": "1700000000000"
+    }
+  ],
+  "totalItems": 2
+}

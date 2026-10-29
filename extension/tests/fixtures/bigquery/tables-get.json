@@ -1,0 +1,135 @@
+{
+  "kind": "bigquery#table",
+  "etag": "x6T1/0r3w1f9hQ==",
+  "id": "dbui-test:shop.orders",
+  "selfLink": "https://bigquery.googleapis.com/bigquery/v2/projects/dbui-test/datasets/shop/tables/orders",
+  "tableReference": {
+    "projectId": "dbui-test",
+    "datasetId": "shop",
+    "tableId": "orders"
+  },
+  "description": "Orders, one row per checkout",
+  "schema": {
+    "fields": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "mode": "REQUIRED"
+      },
+      {
+        "name": "amount",
+        "type": "NUMERIC",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "score",
+        "type": "FLOAT",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "active",
+        "type": "BOOLEAN",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "created_at",
+        "type": "TIMESTAMP",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "day",
+        "type": "DATE",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "tags",
+        "type": "STRING",
+        "mode": "REPEATED"
+      },
+      {
+        "name": "address",
+        "type": "RECORD",
+        "mode": "NULLABLE",
+        "fields": [
+          {
+            "name": "city",
+            "type": "STRING",
+            "mode": "NULLABLE"
+          },
+          {
+            "name": "zip",
+            "type": "INTEGER",
+            "mode": "NULLABLE"
+          }
+        ]
+      },
+      {
+        "name": "items",
+        "type": "RECORD",
+        "mode": "REPEATED",
+        "fields": [
+          {
+            "name": "sku",
+            "type": "STRING",
+            "mode": "NULLABLE"
+          },
+          {
+            "name": "qty",
+            "type": "INTEGER",
+            "mode": "NULLABLE"
+          }
+        ]
+      },
+      {
+        "name": "meta",
+        "type": "JSON",
+        "mode": "NULLABLE"
+      }
+    ]
+  },
+  "timePartitioning": {
+    "type": "DAY",
+    "field": "created_at",
+    "expirationMs": "7776000000"
+  },
+  "requirePartitionFilter": true,
+  "clustering": {
+    "fields": [
+      "id",
+      "day"
+    ]
+  },
+  "numBytes": "1288490188",
+  "numLongTermBytes": "0",
+  "numRows": "48213",
+  "creationTime": "1700000000000",
+  "lastModifiedTime": "1710000000000",
+  "type": "TABLE",
+  "location": "US",
+  "numTotalLogicalBytes": "1288490188",
+  "numActiveLogicalBytes": "1288490188",
+  "numLongTermLogicalBytes": "0",
+  "tableConstraints": {
+    "primaryKey": {
+      "columns": [
+        "id"
+      ]
+    },
+    "foreignKeys": [
+      {
+        "name": "fk_customer",
+        "referencedTable": {
+          "projectId": "dbui-test",
+          "datasetId": "shop",
+          "tableId": "customers"
+        },
+        "columnReferences": [
+          {
+            "referencingColumn": "day",
+            "referencedColumn": "day"
+          }
+        ]
+      }
+    ]
+  }
+}

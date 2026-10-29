@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "dbui",
+  "version": "0.1.0",
+  "description": "Database client and data-file viewer in a full browser tab.",
+  "minimum_chrome_version": "120",
+  "action": { "default_title": "Open dbui" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": [
+    "nativeMessaging", "downloads", "downloads.open", "identity", "storage", "unlimitedStorage",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://bigquery.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://iamcredentials.googleapis.com/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "cross_origin_embedder_policy": { "value": "require-corp" },
+  "cross_origin_opener_policy": { "value": "same-origin" }
+}

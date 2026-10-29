@@ -1,0 +1,9 @@
+{
+  "account": "",
+  "client_id": "000000000000-testclientid.apps.googleusercontent.com",
+  "client_secret": "test-client-secret",
+  "quota_project_id": "dbui-test",
+  "refresh_token": "1//0test-refresh-token-not-real",
+  "type": "authorized_user",
+  "universe_domain": "googleapis.com"
+}

@@ -1,0 +1,3 @@
+["a", "t", "f", "dec", "m", "lc", "dt", "ip", "e"]
+["Array(UInt64)", "Tuple(n Int64, s String)", "Float64", "Decimal(38, 2)", "Map(String, Int64)", "LowCardinality(Nullable(String))", "DateTime('UTC')", "IPv4", "Enum8('a' = 1, 'b' = 2)"]
+[["1","18446744073709551615"], {"n":"1","s":"x"}, "nan", "1.5", {"a":"5"}, "z", "2024-01-01 00:00:00", "1.2.3.4", "a"]
