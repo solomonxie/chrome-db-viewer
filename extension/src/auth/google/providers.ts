@@ -127,7 +127,19 @@ export function chromeProfileProvider(opts: ChromeProfileOptions, deps: GoogleAu
   const identity = () => deps.identity ?? chromeIdentity();
   return new CachingTokenProvider(
     async () => {
-      const res = await identity().getAuthToken({ interactive: opts.interactive ?? true, scopes: opts.scopes ?? [BIGQUERY_SCOPE] });
+      let res: Awaited<ReturnType<ReturnType<typeof identity>["getAuthToken"]>>;
+      try {
+        res = await identity().getAuthToken({ interactive: opts.interactive ?? true, scopes: opts.scopes ?? [BIGQUERY_SCOPE] });
+      } catch (e) {
+        // Chrome raises this when the manifest has no oauth2.client_id registered for this extension ID.
+        if (/oauth2|client id/i.test(String((e as Error)?.message ?? e))) {
+          throw new AuthError(
+            "Chrome sign-in isn't set up in this build (it needs an OAuth client registered for this extension). Choose \"gcloud login\" or \"Paste a token\" instead.",
+            "oauth_client_missing",
+          );
+        }
+        throw e;
+      }
       const token = typeof res === "string" ? res : res?.token;
       if (!token) throw new AuthError("Chrome did not return a token. Sign in to Chrome or allow access.", "no_token");
       return { token, expiresAt: now() + DEFAULT_LIFETIME_MS };

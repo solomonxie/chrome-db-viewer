@@ -78,7 +78,7 @@ export function buildConnection(driver: DriverId, form: FormState, id: string, c
 
 /** The BigQuery driver reads options.auth = { method, options } and options.projectId. */
 function shapeBigQuery(o: Record<string, unknown>, id: string) {
-  const method = String(o.auth ?? "chrome-profile");
+  const method = String(o.auth ?? "adc");
   let authOptions: Record<string, unknown> = {};
   switch (method) {
     case "web-auth":

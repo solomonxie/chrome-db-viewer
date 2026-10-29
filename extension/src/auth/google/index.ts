@@ -32,12 +32,12 @@ export { signJwt, base64url, base64urlDecode, pemToDer } from "./jwt";
 
 /** Labels for the connection form, in display order. */
 export const GOOGLE_AUTH_METHODS: { method: GoogleAuthMethod; label: string }[] = [
-  { method: "chrome-profile", label: "Chrome profile account" },
+  { method: "chrome-profile", label: "Chrome sign-in" },
   { method: "web-auth", label: "Any Google account" },
   { method: "service-account", label: "Service account key (JSON)" },
-  { method: "adc", label: "gcloud ADC file" },
+  { method: "adc", label: "gcloud login" },
   { method: "impersonate", label: "Service account impersonation" },
-  { method: "access-token", label: "Paste an access token" },
+  { method: "access-token", label: "Paste a token" },
 ];
 
 export function createTokenProvider<M extends GoogleAuthMethod>(

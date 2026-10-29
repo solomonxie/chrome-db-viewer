@@ -39,13 +39,13 @@ const ssh: FormField[] = [
 
 // Values match GoogleAuthMethod in src/auth/google; "wif" is runner-only and not wired yet.
 export const BIGQUERY_AUTH = [
-  { value: "chrome-profile", label: "Chrome profile account", hint: "Uses the Google account signed in to Chrome. One consent screen, no password.", available: true },
-  { value: "web-auth", label: "Any Google account", hint: "OAuth sign-in in a popup (Edge, Brave, Arc, or another account). Refresh token kept per your secret setting.", available: true },
-  { value: "service-account", label: "Service account key (JSON)", hint: "Keep the key as a file handle on disk, or store it in this browser.", available: true },
-  { value: "adc", label: "gcloud ADC", hint: "Pick application_default_credentials.json once; dbui keeps a handle to it.", available: true },
-  { value: "impersonate", label: "Service account impersonation", hint: "Sign in with your Chrome profile account, then act as a target service account.", available: true },
-  { value: "wif", label: "Workload identity federation", hint: "external_account configs (AWS, Azure, OIDC). Needs the runner.", available: false },
-  { value: "access-token", label: "Paste an access token", hint: "e.g. gcloud auth print-access-token. Memory only, expires in about an hour.", available: true },
+  { value: "adc", label: "gcloud login (recommended)", hint: "Uses your gcloud sign-in on this Mac. Pick ~/.config/gcloud/application_default_credentials.json once (⌘⇧G in the picker to type the path).", available: true },
+  { value: "access-token", label: "Paste a token (1 hour)", hint: "Run gcloud auth print-access-token and paste the ya29… output. Kept in memory only.", available: true },
+  { value: "chrome-profile", label: "Chrome sign-in", hint: "The Google account signed in to Chrome. Needs an OAuth client set up for this extension.", available: true },
+  { value: "web-auth", label: "Google sign-in popup", hint: "Pick any Google account in a popup. Needs an OAuth client set up for this extension.", available: true },
+  { value: "service-account", label: "Service account key file", hint: "A service account's JSON key, kept as a file handle on disk or stored in this browser.", available: true },
+  { value: "impersonate", label: "Act as a service account", hint: "Chrome sign-in first, then act as the service account you name.", available: true },
+  { value: "wif", label: "Workload identity", hint: "external_account configs for AWS, Azure or OIDC.", available: false },
 ] as const;
 
 export const ENGINES: EngineSpec[] = [
@@ -94,7 +94,7 @@ export const ENGINES: EngineSpec[] = [
     badge: "Bq",
     available: true,
     fields: [
-      { key: "auth", label: "Sign in with", kind: "select", default: "chrome-profile", options: BIGQUERY_AUTH.map((a) => ({ value: a.value, label: a.label })) },
+      { key: "auth", label: "Sign in with", kind: "select", default: "adc", options: BIGQUERY_AUTH.map((a) => ({ value: a.value, label: a.label })) },
       { key: "projectId", label: "Billing project", kind: "text", placeholder: "my-project (blank: first visible project)" },
       { key: "dataset", label: "Default dataset", kind: "text", placeholder: "optional" },
       { key: "location", label: "Location", kind: "text", placeholder: "US" },

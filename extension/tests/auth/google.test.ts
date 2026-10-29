@@ -219,3 +219,17 @@ test("pkce pair: verifier is 43 url-safe chars", async () => {
   expect(verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
 });
+
+test("chrome profile: a missing OAuth client becomes an actionable error", async () => {
+  const identity: IdentityApi = {
+    getAuthToken: vi.fn(async () => {
+      throw new Error("Invalid OAuth2 Client ID.");
+    }),
+    removeCachedAuthToken: vi.fn(async () => undefined),
+    launchWebAuthFlow: vi.fn(),
+    getRedirectURL: () => "",
+  };
+  const provider = createTokenProvider("chrome-profile", {}, { identity });
+  await expect(provider.getToken()).rejects.toMatchObject({ code: "oauth_client_missing" });
+  await expect(provider.getToken()).rejects.toThrow(/gcloud login.*Paste a token/);
+});
