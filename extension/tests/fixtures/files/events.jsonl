@@ -1,0 +1,10 @@
+{"id":1,"type":"view","payload":{"user":"u1","tags":["a","b"]},"big_id":9007199254740994}
+{"id":2,"type":"buy","payload":{"user":"u2","tags":["a"]},"big_id":9007199254740995}
+{"id":3,"type":"click","payload":{"user":"u3","tags":["a","b"]},"big_id":9007199254740996}
+{"id":4,"type":"view","payload":{"user":"u0","tags":["a"]},"big_id":9007199254740997}
+{"id":5,"type":"buy","payload":{"user":"u1","tags":["a","b"]},"big_id":9007199254740998}
+{"id":6,"type":"click","payload":{"user":"u2","tags":["a"]},"big_id":9007199254740999}
+{"id":7,"type":"view","payload":{"user":"u3","tags":["a","b"]},"big_id":9007199254741000}
+{"id":8,"type":"buy","payload":{"user":"u0","tags":["a"]},"big_id":9007199254741001}
+{"id":9,"type":"click","payload":{"user":"u1","tags":["a","b"]},"big_id":9007199254741002}
+{"id":10,"type":"view","payload":{"user":"u2","tags":["a"]},"big_id":9007199254741003}
