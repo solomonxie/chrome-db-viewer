@@ -4,12 +4,13 @@ import { useMemo, useRef, useState } from "react";
 import type { DriverId, Env } from "@core/types";
 import { BIGQUERY_AUTH, ENGINES, defaultValues, engine, fieldVisible, gridMove, type FormField } from "../lib/driverForms";
 import { buildConnection, formFromConnection, type FormState } from "../lib/connForm";
+import { BIGQUERY_AUTH_GUIDES, type ConnectionGuide } from "../lib/connectionGuides";
 import { openDriver, parseConnectionUrl, saveConnection, withSecret } from "../lib/connections";
 import { pickFile } from "../lib/files";
 import { ENV_VAR } from "../lib/format";
 import * as db from "../store/db";
 import { secretStore, sessionSecrets } from "../store/secrets";
-import { Modal } from "../components/ui";
+import { EngineBadge, Modal } from "../components/ui";
 
 const COLS = 4;
 const ENVS: Env[] = ["local", "dev", "staging", "production"];
@@ -105,7 +106,7 @@ export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<F
             onDoubleClick={() => e.available && props.onPick(e.id as DriverId)}
             onFocus={() => setIdx(i)}
           >
-            <span className="engine lg">{e.badge}</span>
+            <EngineBadge driver={e.id} name={e.name} badge={e.badge} large dim={!e.available} />
             {e.name}
             {!e.available ? <small>Coming later</small> : e.needsRunner ? <small>needs runner</small> : <small>in browser</small>}
           </button>
@@ -131,7 +132,7 @@ export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<F
             </button>
           </div>
           {importErr && <div className="err">{importErr}</div>}
-          <div className="faint" style={{ fontSize: 11.5 }}>
+          <div className="faint" style={{ fontSize: 13 }}>
             Passwords in the URL are ignored; you type them in the next step. TablePlus/DBeaver exports: not supported yet.
           </div>
         </div>
@@ -293,7 +294,7 @@ export function ConnectionForm(props: {
     <Modal
       title={
         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="engine">{spec.badge}</span>
+          <EngineBadge driver={spec.id} name={spec.name} badge={spec.badge} />
           {props.existing ? `Edit ${props.existing.name}` : `New ${spec.name} connection`}
         </span>
       }
@@ -304,7 +305,7 @@ export function ConnectionForm(props: {
           <button className="btn" onClick={runTest} disabled={test.state === "running"}>
             {test.state === "running" ? "Testing…" : "Test connection"}
           </button>
-          {test.state === "ok" && <span style={{ color: "var(--add-fg)", fontSize: 12 }}>{test.msg}</span>}
+          {test.state === "ok" && <span style={{ color: "var(--add-fg)", fontSize: 14 }}>{test.msg}</span>}
           <span className="spacer" />
           <button className="btn" onClick={props.onCancel}>
             Cancel
@@ -342,17 +343,21 @@ export function ConnectionForm(props: {
         </datalist>
 
         {authField && (
-          <div className="authlist" role="radiogroup" aria-label="Sign in with">
-            {BIGQUERY_AUTH.map((a) => (
-              <label key={a.value} className="authopt" style={a.available ? undefined : { opacity: 0.55, cursor: "not-allowed" }}>
-                <input type="radio" name="bq-auth" disabled={!a.available} checked={form.values.auth === a.value} onChange={() => set("auth", a.value)} />
-                <span>
-                  <b>{a.label}</b>
-                  <small>{a.hint}</small>
-                </span>
-              </label>
-            ))}
-          </div>
+          <>
+            <label className="k" htmlFor="f_auth">
+              Sign in with
+            </label>
+            <div className="authpick">
+              <select id="f_auth" className="input" value={String(form.values.auth ?? "")} onChange={(e) => set("auth", e.target.value)}>
+                {BIGQUERY_AUTH.map((a) => (
+                  <option key={a.value} value={a.value} disabled={!a.available}>
+                    {a.available ? a.label : `${a.label} (needs the runner)`}
+                  </option>
+                ))}
+              </select>
+              <Guide guide={BIGQUERY_AUTH_GUIDES[String(form.values.auth ?? "")]} />
+            </div>
+          </>
         )}
 
         {visible
@@ -382,9 +387,53 @@ export function ConnectionForm(props: {
         <button type="submit" hidden />
       </form>
       {spec.needsRunner && <div className="note">This engine runs through the dbui runner. Without it, opening the connection shows the install card.</div>}
-      {test.state === "error" && <div className="err">{test.msg}</div>}
-      {error && <div className="err">{error}</div>}
+      {test.state === "error" && <ErrorLine msg={test.msg ?? ""} />}
+      {error && <ErrorLine msg={error} />}
     </Modal>
+  );
+}
+
+/** How the chosen BigQuery sign-in method works, what it needs, and where it fits. */
+function Guide({ guide }: { guide: ConnectionGuide | undefined }) {
+  if (!guide) return null;
+  return (
+    <section className="guide" aria-label="About this sign-in method">
+      <p className="guide-how">{guide.how}</p>
+      <div className="guide-cols">
+        <div>
+          <h4>You need</h4>
+          <ul>{guide.needs.map((n) => <li key={n}>{n}</li>)}</ul>
+        </div>
+        <div>
+          <h4 className="good">Good for</h4>
+          <ul>{guide.goodFor.map((n) => <li key={n}>{n}</li>)}</ul>
+        </div>
+        {guide.avoid && (
+          <div>
+            <h4 className="avoid">Not a good fit</h4>
+            <ul>{guide.avoid.map((n) => <li key={n}>{n}</li>)}</ul>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Error line; a stale-build error gets a Reload button since nothing else fixes it. */
+function ErrorLine({ msg }: { msg: string }) {
+  const stale = msg.startsWith("dbui was updated while this tab was open");
+  return (
+    <div className="err">
+      {msg}
+      {stale && (
+        <>
+          {" "}
+          <button type="button" className="btn" onClick={() => location.reload()}>
+            Reload tab
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 

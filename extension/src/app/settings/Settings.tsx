@@ -10,6 +10,7 @@ import {
 import { navigate } from "../lib/route";
 import { useToast } from "../components/ui";
 import { RunnerCard, useRunnerStatus } from "../home/RunnerCard";
+import { Icon } from "../components/Icon";
 
 type GroupKey = keyof typeof PREVIEW_GROUPS;
 
@@ -176,14 +177,14 @@ export function Settings({ section }: { section?: string }) {
                 </div>
               </fieldset>
               <div>
-                <h3 style={{ margin: "0 0 6px", fontSize: 13 }}>Never open from these sites</h3>
+                <h3 style={{ margin: "0 0 6px", fontSize: 15 }}>Never open from these sites</h3>
                 <div className="domains" style={{ marginBottom: 8 }}>
                   {s.excludedDomains.length === 0 && <span className="faint" style={{ border: 0, background: "none", padding: 0 }}>No sites excluded.</span>}
                   {s.excludedDomains.map((d) => (
                     <span key={d}>
                       {d}
                       <button onClick={() => void save({ ...s, excludedDomains: s.excludedDomains.filter((x) => x !== d) })} aria-label={`Remove ${d}`}>
-                        ×
+                        <Icon name="close" className="ico sm" />
                       </button>
                     </span>
                   ))}
@@ -213,14 +214,14 @@ export function Settings({ section }: { section?: string }) {
         <section id="settings-runner">
           <h2>dbui runner</h2>
           <RunnerCard status={runner.status} onCheck={runner.check} />
-          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>
             To uninstall, run <span className="mono">~/Library/Application Support/dbui/uninstall.sh</span>. It removes the binary, the browser manifests and dbui's Keychain items.
           </p>
         </section>
 
         <section id="settings-privacy">
           <h2>Secrets and storage</h2>
-          <p className="muted" style={{ margin: 0, lineHeight: 1.5, fontSize: 12.5 }}>
+          <p className="muted" style={{ margin: 0, lineHeight: 1.5, fontSize: 14.5 }}>
             Connection settings live in this browser's IndexedDB. Passwords are kept in memory for the session, or in chrome.storage.local when you choose "Remember in this browser". Nothing is synced to your Google account, and secrets never appear in exports.
           </p>
         </section>

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Env } from "@core/types";
 import { ENGINE, ENV_VAR } from "../lib/format";
+import { BRAND_ICONS } from "./brandIcons";
 
 export function Modal(props: { title: ReactNode; onClose: () => void; wide?: boolean; children: ReactNode; actions?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -194,11 +195,35 @@ export function CommandPalette(props: { commands: PaletteCommand[]; onClose: () 
   );
 }
 
-export function EngineBadge({ driver, demo, large }: { driver: string; demo?: boolean; large?: boolean }) {
+/**
+ * Round engine badge: the engine's brand mark on its brand colour, or the two-letter
+ * fallback (demo, data files, unknown engines). `name`/`badge` cover engines that aren't
+ * DriverIds yet, like the backlog entries in the new-connection picker.
+ */
+export function EngineBadge({ driver, demo, large, name, badge, dim }: {
+  driver: string;
+  demo?: boolean;
+  large?: boolean;
+  name?: string;
+  badge?: string;
+  dim?: boolean;
+}) {
   const e = ENGINE[(demo ? "demo" : driver) as keyof typeof ENGINE];
+  const label = name ?? e?.name ?? driver;
+  const brand = demo ? undefined : BRAND_ICONS[driver];
+  const cls = "engine" + (large ? " lg" : "") + (brand ? " brand" : "") + (dim ? " dim" : "");
+  if (brand) {
+    return (
+      <span className={cls} title={label} aria-label={label} role="img" style={{ background: brand.bg, color: brand.fg }}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d={brand.path} fill="currentColor" />
+        </svg>
+      </span>
+    );
+  }
   return (
-    <span className={"engine" + (large ? " lg" : "")} title={e?.name ?? driver}>
-      {e?.badge ?? driver.slice(0, 2)}
+    <span className={cls} title={label}>
+      {badge ?? e?.badge ?? driver.slice(0, 2)}
     </span>
   );
 }

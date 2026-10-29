@@ -3,6 +3,7 @@
 import type { Capabilities, Cell, Column, ConnectionConfig, Driver, ObjectPath, ObjectType, TableSchema } from "@core/types";
 import type { FilterRow, Joiner, SortSpec } from "../lib/filters";
 import type { PendingState } from "../lib/changes";
+import type { HistorySource } from "../store/db";
 
 export interface TableEntry {
   /** Tree path, passed to describe(). */
@@ -36,7 +37,7 @@ export interface ConnCtx {
   sqlName: (path: ObjectPath) => string;
   describe: (path: ObjectPath) => Promise<TableSchema>;
   toast: (msg: string) => void;
-  addHistory: (h: { sql: string; ms?: number; rows?: number; error?: string }) => void;
+  addHistory: (h: { sql: string; ms?: number; rows?: number; error?: string; source: HistorySource }) => void;
   /** Resolves "customers.id" to a tree path for a table, from the tree or a sibling guess. */
   resolveTable: (ref: string, from: ObjectPath) => ObjectPath;
   editMode: EditMode;

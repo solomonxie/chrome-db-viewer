@@ -163,7 +163,7 @@ function FieldEditor(props: { col: Column; value: Cell | typeof MULTI; editable:
           <input
             type={local.kind}
             className="input"
-            style={{ width: 34, padding: 2 }}
+            style={{ width: 44, padding: 2, minHeight: 36 }}
             title="Pick a date"
             value={local.value}
             onChange={(e) => e.target.value && props.onChange(fromLocalInput(e.target.value, local.kind!, s))}

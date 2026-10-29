@@ -15,6 +15,7 @@ import { EngineBadge, EnvTag, Highlight, Modal, useToast } from "../components/u
 import { ConnectionForm, EnginePicker } from "./NewConnection";
 import type { FormState } from "../lib/connForm";
 import { RunnerCard, useRunnerStatus } from "./RunnerCard";
+import { Icon } from "../components/Icon";
 
 type Sheet =
   | { kind: "picker" }
@@ -113,7 +114,7 @@ export function Home() {
       <div className="home-inner">
         <div className="main">
           <h1>
-            <svg className="ico" style={{ width: 20, height: 20, color: "var(--accent)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <svg className="ico" style={{ width: 26, height: 26, color: "var(--accent)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <ellipse cx="12" cy="5" rx="8" ry="3" />
               <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
             </svg>
@@ -199,11 +200,11 @@ export function Home() {
                         <EnvTag env={c.env} />
                         {!demo && (
                           <span className="acts" onClick={(e) => e.stopPropagation()}>
-                            <button className="btn icon ghost" title="Edit" onClick={() => setSheet({ kind: "form", driver: c.driver, existing: c })}>
-                              ✎
+                            <button className="btn icon ghost" title="Edit" onClick={() => setSheet({ kind: "form", driver: c.driver, existing: c })} aria-label={`Edit ${c.name}`}>
+                              <Icon name="edit" />
                             </button>
-                            <button className="btn icon ghost" title="Delete" onClick={() => setSheet({ kind: "delete", conn: c })}>
-                              ✕
+                            <button className="btn icon ghost" title="Delete" onClick={() => setSheet({ kind: "delete", conn: c })} aria-label={`Delete ${c.name}`}>
+                              <Icon name="trash" />
                             </button>
                           </span>
                         )}
@@ -214,7 +215,7 @@ export function Home() {
               );
             })}
           </div>
-          <div className="faint" style={{ fontSize: 11.5 }}>
+          <div className="faint" style={{ fontSize: 13 }}>
             <kbd>↑</kbd> <kbd>↓</kbd> + <kbd>Enter</kbd> connects · <kbd>⌥</kbd>-click opens in a new tab · drag a connection onto a group · <kbd>{MOD}O</kbd> open file
           </div>
         </div>

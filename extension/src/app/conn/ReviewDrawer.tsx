@@ -8,6 +8,7 @@ import { TypedConfirm } from "../components/ui";
 import { discard, toChangeSet, undo } from "../lib/changes";
 import { MOD } from "../lib/keys";
 import type { ConnCtx } from "./model";
+import { Icon } from "../components/Icon";
 
 export function ReviewDrawer(props: { ctx: ConnCtx; applying: boolean; error: string | null; askConfirm?: boolean; onApply: () => void; onClose: () => void }) {
   const { ctx } = props;
@@ -31,12 +32,12 @@ export function ReviewDrawer(props: { ctx: ConnCtx; applying: boolean; error: st
     <div className="drawer" role="dialog" aria-label="Pending changes">
       <header>
         <h3>Pending changes</h3>
-        <span className="faint" style={{ fontSize: 12 }}>
+        <span className="faint" style={{ fontSize: 14 }}>
           {counts.update} updated · {counts.insert} inserted · {counts.delete} deleted
         </span>
         <span className="spacer" />
         <button className="btn icon ghost" onClick={props.onClose} aria-label="Close">
-          ✕
+          <Icon name="close" />
         </button>
       </header>
       <div className="body">
@@ -44,7 +45,7 @@ export function ReviewDrawer(props: { ctx: ConnCtx; applying: boolean; error: st
           <div className="empty">No pending changes.</div>
         ) : (
           <>
-            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+            <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
               These statements run in one transaction{ctx.caps.transactions ? "" : " where the engine supports it"} when you commit. Literals are shown inline here; the driver sends them as parameters.
             </p>
             <pre className="code">{sql}</pre>

@@ -18,10 +18,13 @@ import { RunnerCard } from "../home/RunnerCard";
 import { ConnectionForm } from "../home/NewConnection";
 import { DetailsPane } from "./DetailsPane";
 import { LeftPane } from "./LeftPane";
+import { Splitter, usePaneWidth } from "../components/Splitter";
 import { QueryView } from "./QueryView";
 import { ReviewDrawer } from "./ReviewDrawer";
 import { TableView } from "./TableView";
 import { newEntry, pathKey, type ConnCtx, type DetailsSource, type EditMode, type TableEntry, type WorkTab } from "./model";
+import { historyTarget } from "./historyTab";
+import { Icon } from "../components/Icon";
 
 type Phase =
   | { kind: "loading" }
@@ -162,12 +165,14 @@ export function ConnectionTab({ connectionId }: { connectionId: string }) {
             <button
               className="btn primary"
               onClick={async () => {
+                // A stale build can't be retried in place; only reloading loads the new chunks.
+                if (phase.message.startsWith("dbui was updated while this tab was open")) return location.reload();
                 const secret = await resolveSecret(phase.cfg);
                 if (needsSecret(phase.cfg) && secret === null) setPhase({ kind: "password", cfg: phase.cfg });
                 else void connect(phase.cfg, secret);
               }}
             >
-              Retry
+              {phase.message.startsWith("dbui was updated while this tab was open") ? "Reload tab" : "Retry"}
             </button>
             <button className="btn" onClick={() => navigate({ name: "home" })}>
               Home
@@ -205,7 +210,7 @@ function PasswordPrompt(props: { cfg: SavedConnection; error?: string; onSubmit:
     >
       <p>{connectionSubtitle(props.cfg)}</p>
       <input className="input mono" type="password" autoFocus value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && props.onSubmit(v, remember)} aria-label={label} autoComplete="off" />
-      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
         <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
         Remember in this browser (chrome.storage.local, never synced)
       </label>
@@ -222,6 +227,8 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [showLeft, setShowLeft] = useState(true);
   const [showRight, setShowRight] = useState(true);
+  const leftPane = usePaneWidth("dbui.pane.left", 280, 200, 560);
+  const rightPane = usePaneWidth("dbui.pane.right", 340, 260, 720);
   const [details, setDetails] = useState<DetailsSource | null>(null);
   const [drawer, setDrawer] = useState<null | { confirm: boolean }>(null);
   const [applying, setApplying] = useState(false);
@@ -239,7 +246,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const setPending = useCallback((fn: (s: PendingState) => PendingState) => setPendingState(fn), []);
 
   const addHistory = useCallback(
-    (h: { sql: string; ms?: number; rows?: number; error?: string }) => {
+    (h: { sql: string; ms?: number; rows?: number; error?: string; source: db.HistorySource }) => {
       setLog((l) => [{ ...h, at: Date.now() }, ...l].slice(0, 300));
       void db
         .put("history", { id: db.uid("h_"), connectionId: cfg.id, at: Date.now(), ...h })
@@ -330,6 +337,16 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     setActiveTab(t.id);
   };
 
+  const openFromHistory = (sql: string) => {
+    const target = historyTarget(tabs, activeTab, sql);
+    if ("focus" in target) return setActiveTab(target.focus);
+    if ("load" in target) {
+      setTabs((ts) => ts.map((t) => (t.id === target.load && t.kind === "query" ? { ...t, sql } : t)));
+      return setActiveTab(target.load);
+    }
+    openSql(sql, "History");
+  };
+
   const closeTab = (id: string) => {
     setTabs((ts) => {
       const i = ts.findIndex((t) => t.id === id);
@@ -349,7 +366,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     const set = toChangeSet(pending);
     try {
       const res = await driver.apply(set);
-      for (const s of res.statements) addHistory({ sql: s, ms: res.ms / Math.max(1, res.statements.length) });
+      for (const s of res.statements) addHistory({ sql: s, ms: res.ms / Math.max(1, res.statements.length), source: "apply" });
       const tables = new Set(set.changes.map((c) => pathKey(c.table)));
       setPendingState((s) => [...tables].reduce((acc, t) => clearTable(acc, JSON.parse(t) as ObjectPath), s));
       setDrawer(null);
@@ -436,19 +453,19 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const db_ = String(cfg.options.database ?? cfg.options.projectId ?? cfg.options.fileName ?? "");
   const tableLabel = activeEntry ? ctx.sqlName(activeEntry.path).replace(/["`]/g, "") : active?.kind === "query" ? active.title : "";
 
-  const cols = `${showLeft ? "240px " : ""}minmax(0, 1fr)${showRight ? " 280px" : ""}`;
+  const cols = `${showLeft ? `${leftPane.width}px var(--splitter-w) ` : ""}minmax(0, 1fr)${showRight ? ` var(--splitter-w) ${rightPane.width}px` : ""}`;
 
   return (
     <div className="conn" style={{ ["--envc" as string]: envc }}>
       <div className="topbar" style={{ borderTop: `3px solid ${envc}` }}>
-        <button className="btn icon ghost" title={`Toggle left pane (${MOD}\\)`} aria-pressed={showLeft} onClick={() => setShowLeft(!showLeft)}>
-          ≡
+        <button className="btn icon ghost" title={`Toggle left pane (${MOD}\\)`} aria-pressed={showLeft} onClick={() => setShowLeft(!showLeft)} aria-label="Toggle left pane">
+          <Icon name="sidebar" />
         </button>
-        <button className="btn icon ghost" title="Connections (Home)" onClick={() => navigate({ name: "home" })}>
-          ⏻
+        <button className="btn icon ghost" title="Connections (Home)" onClick={() => navigate({ name: "home" })} aria-label="Connections">
+          <Icon name="home" />
         </button>
-        <button className="btn icon ghost" title={readOnly ? "Read-only: click to allow edits" : "Click to make read-only"} aria-pressed={readOnly} onClick={toggleReadOnly}>
-          {readOnly ? "🔒" : "🔓"}
+        <button className="btn icon ghost" title={readOnly ? "Read-only: click to allow edits" : "Click to make read-only"} aria-pressed={readOnly} onClick={toggleReadOnly} aria-label="Read-only">
+          <Icon name={readOnly ? "lock" : "unlock"} />
         </button>
         <button className="btn ghost" title={`New query tab (${ALT}T)`} onClick={() => openSql()}>
           SQL
@@ -470,22 +487,23 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
             {demo && <span className="tag demo">Demo data</span>}
           </button>
         </div>
-        <button className="btn icon ghost" title="Statements dbui ran" aria-pressed={showLog} onClick={() => setShowLog(!showLog)}>
-          ⚠{log.some((l) => l.error) ? "" : ""}
+        <button className="btn icon ghost" title="Statements dbui ran" aria-pressed={showLog} onClick={() => setShowLog(!showLog)} aria-label="Statement log">
+          <Icon name="log" />
         </button>
-        <button className="btn icon ghost" title={`Refresh (${MOD}R)`} onClick={() => setReloadKey((k) => k + 1)}>
-          ⟳
+        <button className="btn icon ghost" title={`Refresh (${MOD}R)`} onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh">
+          <Icon name="refresh" />
         </button>
         <button className="btn ghost" title="Command palette" onClick={() => setPalette(true)}>
           <kbd>{MOD}K</kbd>
         </button>
-        <button className="btn icon ghost" title={`Toggle Details pane (${MOD}⌥R)`} aria-pressed={showRight} onClick={() => setShowRight(!showRight)}>
-          ◨
+        <button className="btn icon ghost" title={`Toggle Details pane (${MOD}⌥R)`} aria-pressed={showRight} onClick={() => setShowRight(!showRight)} aria-label="Toggle Details pane">
+          <Icon name="panel-right" />
         </button>
       </div>
 
       <div className="panes" style={{ gridTemplateColumns: cols }}>
-        {showLeft && <LeftPane ctx={ctx} activePath={activeEntry?.path ?? null} onOpen={openTable} onOpenSql={openSql} historyVersion={historyVersion} refreshKey={treeKey} />}
+        {showLeft && <LeftPane ctx={ctx} activePath={activeEntry?.path ?? null} onOpen={openTable} onOpenSql={openSql} onOpenHistory={openFromHistory} historyVersion={historyVersion} refreshKey={treeKey} />}
+        {showLeft && <Splitter side="left" label="Resize object tree" size={leftPane} onResize={leftPane.setWidth} />}
         <div className="center">
           {readOnly && (
             <div className="ro-banner">
@@ -495,10 +513,10 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
           <div className="wtabs">
             <div className="nav">
               <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos > 0)} onClick={() => go(-1)} title={`Back (${MOD}[)`} aria-label="Back">
-                ‹
+                <Icon name="back" />
               </button>
               <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos < active.stack.length - 1)} onClick={() => go(1)} title={`Forward (${MOD}])`} aria-label="Forward">
-                ›
+                <Icon name="forward" />
               </button>
             </div>
             <div className="scroller" role="tablist">
@@ -527,13 +545,13 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                       }}
                       aria-label={`Close ${label}`}
                     >
-                      ×
+                      <Icon name="close" />
                     </button>
                   </div>
                 );
               })}
-              <button className="wtab" onClick={() => openSql()} title={`New query tab (${ALT}T)`} style={{ color: "var(--faint)" }}>
-                +
+              <button className="wtab" onClick={() => openSql()} title={`New query tab (${ALT}T)`} style={{ color: "var(--faint)" }} aria-label="New query tab">
+                <Icon name="plus" />
               </button>
             </div>
           </div>
@@ -587,7 +605,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 </span>
               )}
               {showLog && (
-                <div style={{ width: "100%", maxHeight: 160, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
+                <div style={{ width: "100%", maxHeight: 160, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 13 }}>
                   {log.length === 0 && <div className="faint">No statements yet.</div>}
                   {log.map((l, i) => (
                     <div key={i} style={{ color: l.error ? "var(--del-fg)" : undefined, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.error ?? l.sql}>
@@ -602,6 +620,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
             </div>
           )}
         </div>
+        {showRight && <Splitter side="right" label="Resize Details pane" size={rightPane} onResize={rightPane.setWidth} />}
         {showRight && <DetailsPane ctx={ctx} source={details} />}
       </div>
 

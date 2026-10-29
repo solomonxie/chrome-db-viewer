@@ -39,7 +39,7 @@ export function DownloadPrompt({ downloadId }: { downloadId: number }) {
               {p.totalBytes >= 0 ? ` · ${fmtBytes(p.totalBytes)}` : ""}
               {p.mime ? ` · ${p.mime}` : ""}
             </p>
-            <p className="mono" style={{ fontSize: 11.5, wordBreak: "break-all" }}>
+            <p className="mono" style={{ fontSize: 13, wordBreak: "break-all" }}>
               {p.url}
             </p>
             {!p.refetchable && (

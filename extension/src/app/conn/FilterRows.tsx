@@ -3,6 +3,7 @@
 import type { Column } from "@core/types";
 import { FILTER_OPS, opNeedsValue, RAW_SQL, type FilterOp, type FilterRow, type Joiner } from "../lib/filters";
 import { MOD } from "../lib/keys";
+import { Icon } from "../components/Icon";
 
 let nextId = 1;
 export const newFilter = (column = "", op: FilterOp = "=", value = ""): FilterRow => ({ id: nextId++, enabled: true, column, op, value });
@@ -35,7 +36,7 @@ export function FilterRows(props: {
         return (
           <div className="frow-f" key={r.id}>
             <input type="checkbox" checked={r.enabled} onChange={(e) => update(r.id, { enabled: e.target.checked })} title="Turn this condition on or off" aria-label="Enabled" />
-            {i > 0 ? <span className="faint" style={{ width: 28, fontSize: 11 }}>{joiner}</span> : <span style={{ width: 28 }} />}
+            {i > 0 ? <span className="faint" style={{ width: 34, fontSize: 13 }}>{joiner}</span> : <span style={{ width: 34 }} />}
             <select className="input" value={r.column} onChange={(e) => update(r.id, { column: e.target.value })} aria-label="Column">
               <option value={RAW_SQL}>Raw SQL</option>
               {props.columns.map((c) => (
@@ -76,10 +77,10 @@ export function FilterRows(props: {
               Apply
             </button>
             <button className="btn icon" onClick={() => remove(r.id)} title="Remove condition" aria-label="Remove condition">
-              −
+              <Icon name="minus" />
             </button>
             <button className="btn icon" onClick={() => add(r.id)} title="Add condition" aria-label="Add condition">
-              +
+              <Icon name="plus" />
             </button>
           </div>
         );

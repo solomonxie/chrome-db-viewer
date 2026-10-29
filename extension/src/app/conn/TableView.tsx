@@ -12,6 +12,7 @@ import { MOD, useKeys } from "../lib/keys";
 import { FilterRows, newFilter } from "./FilterRows";
 import { newEntry, type ConnCtx, type DetailsSource, type TableEntry } from "./model";
 import { useResult } from "./useResult";
+import { Icon } from "../components/Icon";
 
 const PAGE_SIZES = [200, 500, 1000, 0] as const;
 const NO_COLUMNS: Column[] = [];
@@ -36,7 +37,7 @@ export function TableView(props: {
   const [cursor, setCursor] = useState<GridCursor | null>(null);
   const [quick, setQuick] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
-  const { state, run, abort } = useResult(ctx.driver, ctx.addHistory);
+  const { state, run, abort } = useResult(ctx.driver, (h) => ctx.addHistory({ ...h, source: "browse" }));
   const quickRef = useRef<HTMLInputElement>(null);
 
   const tableName = ctx.sqlName(entry.path);
@@ -357,9 +358,10 @@ export function TableView(props: {
               filtered{entry.applied.length > 1 ? ` · ${entry.applied.length} conditions` : ""}
             </span>
           )}
-          {editReason && <span className="faint" style={{ fontSize: 11.5 }}>{editReason}</span>}
+          {editReason && <span className="faint" style={{ fontSize: 13 }}>{editReason}</span>}
         </div>
       )}
+      {view === "data" && <SentSql sql={sql} onOpen={() => props.onOpenSql(sql, `${entry.path.at(-1)} query`)} />}
       {state.running && <div className="loading-bar" />}
       {view === "data" && (
         <>
@@ -402,8 +404,8 @@ export function TableView(props: {
             </button>
           ))}
         </span>
-        <button className="btn icon" title="New query tab (⌥T)" onClick={() => props.onOpenSql(`SELECT * FROM ${tableName} LIMIT 100;`, "Query")}>
-          +
+        <button className="btn icon" title="New query tab (⌥T)" onClick={() => props.onOpenSql(`SELECT * FROM ${tableName} LIMIT 100;`, "Query")} aria-label="New query tab">
+          <Icon name="plus" />
         </button>
         <span className="count">
           {selection.size > 0 ? `${fmtInt(selection.size)} of ` : ""}
@@ -412,6 +414,11 @@ export function TableView(props: {
           {state.summary && ` · ${fmtMs(state.summary.ms)}`}
           {state.running && " · loading…"}
         </span>
+        {state.running && (
+          <button className="btn warn" onClick={abort} title={`Stop the running query (${MOD}.)`}>
+            Stop <kbd>{MOD}.</kbd>
+          </button>
+        )}
         <span className="spacer" />
         <input ref={quickRef} className="qs" placeholder="🔍 Search loaded rows" value={quick} onChange={(e) => setQuick(e.target.value)} aria-label="Search loaded rows" />
         <select className="input" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} aria-label="Rows per page" title="Rows per page">
@@ -422,13 +429,13 @@ export function TableView(props: {
           ))}
         </select>
         <button className="btn icon" disabled={page === 0 || state.running} onClick={() => setPage(page - 1)} title="Previous page" aria-label="Previous page">
-          ‹
+          <Icon name="prev" />
         </button>
-        <span className="faint" style={{ fontSize: 11.5, minWidth: 40, textAlign: "center" }}>
+        <span className="faint" style={{ fontSize: 13, minWidth: 40, textAlign: "center" }}>
           {pageSize ? `page ${page + 1}` : "all"}
         </span>
         <button className="btn icon" disabled={!hasMore || state.running} onClick={() => setPage(page + 1)} title="Next page" aria-label="Next page">
-          ›
+          <Icon name="next" />
         </button>
       </div>
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
@@ -539,6 +546,28 @@ function Indexes({ schema }: { schema: TableSchema | null }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** The exact statement sent for this grid. It is rebuilt from filters, sort and page, so it updates as they change. */
+function SentSql({ sql, onOpen }: { sql: string; onOpen: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(sql).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      },
+      () => {},
+    );
+  };
+  return (
+    <div className="sentsql" aria-label="SQL sent for this table">
+      <span className="sentsql-label">SQL</span>
+      <code className="sentsql-code" title={sql}>{sql}</code>
+      <button className="btn" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+      <button className="btn" onClick={onOpen} title="Open in a query tab">Edit</button>
     </div>
   );
 }

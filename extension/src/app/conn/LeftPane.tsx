@@ -1,4 +1,4 @@
-// Left pane: Items (lazy object tree with search highlight and type filter), Queries, History.
+// Left pane: Items (lazy object tree with search highlight and type filter), Saved queries, History.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ObjectNode, ObjectPath, ObjectType } from "@core/types";
@@ -6,6 +6,8 @@ import * as db from "../store/db";
 import { fmtAgo, fmtMs } from "../lib/format";
 import { Highlight } from "../components/ui";
 import { pathKey, type ConnCtx } from "./model";
+import { Icon } from "../components/Icon";
+import { isFavorite, loadFavorites, saveFavorites, toggleFavorite, type Favorite } from "../lib/favorites";
 
 const ICON: Partial<Record<ObjectType, string>> = {
   database: "◫", schema: "◇", group: "", table: "▦", view: "◰", materialized_view: "◲",
@@ -32,6 +34,8 @@ export function LeftPane(props: {
   activePath: ObjectPath | null;
   onOpen: (path: ObjectPath, newTab: boolean) => void;
   onOpenSql: (sql: string, title?: string) => void;
+  /** History clicks; reuses a tab instead of opening a new one each time. */
+  onOpenHistory?: (sql: string) => void;
   historyVersion: number;
   refreshKey: number;
 }) {
@@ -42,6 +46,23 @@ export function LeftPane(props: {
   const [hidden, setHidden] = useState<Set<ObjectType>>(new Set());
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [tree, setTree] = useState<TreeState>({ children: new Map(), expanded: new Set(), loading: new Set(), errors: new Map() });
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadFavorites(ctx.cfg.id).then((f) => !cancelled && setFavorites(f), () => !cancelled && setFavorites([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx.cfg.id]);
+
+  const star = (n: Pick<ObjectNode, "path" | "name" | "type">) => {
+    setFavorites((list) => {
+      const next = toggleFavorite(list, n);
+      void saveFavorites(ctx.cfg.id, next);
+      return next;
+    });
+  };
 
   const load = useCallback(
     async (parent: ObjectPath) => {
@@ -134,7 +155,13 @@ export function LeftPane(props: {
           style={{ paddingLeft: 6 + depth * 12 }}
           onClick={(e) => (openable ? props.onOpen(n.path, e.altKey || e.metaKey) : n.hasChildren && toggle(n))}
           onDoubleClick={() => openable && n.hasChildren && toggle(n)}
-          title={n.path.join(".")}
+          onKeyDown={(e) => {
+            if (openable && e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+              e.preventDefault();
+              star(n);
+            }
+          }}
+          title={n.path.join(".") + (openable ? " · F to star" : "")}
           role="treeitem"
           aria-expanded={n.hasChildren ? open : undefined}
         >
@@ -154,6 +181,7 @@ export function LeftPane(props: {
             <Highlight text={n.name} needle={needle} />
           </span>
           {n.meta && <span className="meta">{n.meta}</span>}
+          {openable && <StarToggle on={isFavorite(favorites, n.path)} name={n.name} onToggle={() => star(n)} />}
         </button>,
       );
       if (open) out.push(...renderLevel(n.path, depth + 1));
@@ -173,8 +201,8 @@ export function LeftPane(props: {
     <div className="pane-left">
       <div className="ptabs" role="tablist">
         {(["items", "queries", "history"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t[0]!.toUpperCase() + t.slice(1)}
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} title={TAB_HINT[t]}>
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
@@ -183,16 +211,16 @@ export function LeftPane(props: {
           <div className="psearch">
             <input placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search items" />
             {q && (
-              <button className="btn icon ghost" onClick={() => setQ("")} title="Clear">
-                ⊗
+              <button className="btn icon ghost" onClick={() => setQ("")} title="Clear" aria-label="Clear search">
+                <Icon name="clear" />
               </button>
             )}
-            <button className="btn icon ghost" title="Object types" aria-pressed={hidden.size > 0} onClick={() => setShowTypeMenu(!showTypeMenu)}>
-              ☰
+            <button className="btn icon ghost" title="Object types" aria-pressed={hidden.size > 0} onClick={() => setShowTypeMenu(!showTypeMenu)} aria-label="Object types">
+              <Icon name="filter" />
             </button>
           </div>
           {showTypeMenu && (
-            <div style={{ padding: "0 10px 6px", display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+            <div style={{ padding: "0 10px 6px", display: "flex", flexDirection: "column", gap: 2, fontSize: 14 }}>
               {TYPE_FILTERS.map((f) => (
                 <label key={f.type} style={{ display: "flex", gap: 6 }}>
                   <input
@@ -213,15 +241,81 @@ export function LeftPane(props: {
           <div className="tree" role="tree">
             {tree.loading.has(pathKey([])) && !tree.children.has(pathKey([])) && <div className="empty">Loading…</div>}
             {tree.errors.get(pathKey([])) && <div className="err">{tree.errors.get(pathKey([]))}</div>}
+            <FavoritesSection
+              favorites={favorites.filter((f) => !needle || f.name.toLowerCase().includes(needle))}
+              activePath={props.activePath}
+              needle={needle}
+              onOpen={props.onOpen}
+              onUnstar={star}
+            />
             {renderLevel([], 0)}
           </div>
         </>
       )}
       {tab === "queries" && <QueriesList connectionId={ctx.cfg.id} onOpen={props.onOpenSql} version={props.historyVersion} />}
-      {tab === "history" && <HistoryList connectionId={ctx.cfg.id} onOpen={props.onOpenSql} version={props.historyVersion} />}
+      {tab === "history" && <HistoryList connectionId={ctx.cfg.id} onOpen={props.onOpenHistory ?? props.onOpenSql} version={props.historyVersion} />}
     </div>
   );
 }
+
+/** Star on a tree row: always shown when starred, on hover otherwise. A span, since rows are buttons. */
+function StarToggle({ on, name, onToggle }: { on: boolean; name: string; onToggle: () => void }) {
+  return (
+    <span
+      className={"star" + (on ? " on" : "")}
+      role="button"
+      aria-pressed={on}
+      aria-label={on ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
+      title={on ? "Remove from favorites" : "Add to favorites"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Icon name="star" className="ico sm" />
+    </span>
+  );
+}
+
+function FavoritesSection(props: {
+  favorites: Favorite[];
+  activePath: ObjectPath | null;
+  needle: string;
+  onOpen: (path: ObjectPath, newTab: boolean) => void;
+  onUnstar: (f: Favorite) => void;
+}) {
+  if (props.favorites.length === 0) return null;
+  const active = props.activePath ? pathKey(props.activePath) : null;
+  return (
+    <div className="favorites" role="group" aria-label="Favorites">
+      <div className="fav-head">Favorites</div>
+      {props.favorites.map((f) => (
+        <button
+          key={pathKey(f.path)}
+          className={"node" + (active === pathKey(f.path) ? " active" : "")}
+          style={{ paddingLeft: 6 }}
+          onClick={(e) => props.onOpen(f.path, e.altKey || e.metaKey)}
+          title={f.path.join(".")}
+          role="treeitem"
+        >
+          <span className="tw" />
+          {ICON[f.type] && <span className="faint">{ICON[f.type]}</span>}
+          <span className="nm">
+            <Highlight text={f.name} needle={props.needle} />
+          </span>
+          <StarToggle on name={f.name} onToggle={() => props.onUnstar(f)} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TAB_LABEL = { items: "Items", queries: "Saved", history: "History" } as const;
+const TAB_HINT = {
+  items: "Tables, views and other objects",
+  queries: "Queries you saved by name (⌘S in a query tab)",
+  history: "Every statement run on this connection, newest first",
+} as const;
 
 function QueriesList({ connectionId, onOpen, version }: { connectionId: string; onOpen: (sql: string, title?: string) => void; version: number }) {
   const [rows, setRows] = useState<db.SavedQuery[]>([]);
@@ -235,13 +329,13 @@ function QueriesList({ connectionId, onOpen, version }: { connectionId: string; 
   return (
     <>
       <div className="psearch">
-        <input placeholder="Search queries" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search queries" />
+        <input placeholder="Search saved queries" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search saved queries" />
       </div>
       <div className="hlist">
-        {hits.length === 0 && <div className="empty">No saved queries. Save one from a query tab.</div>}
+        {hits.length === 0 && <div className="empty">No saved queries yet. In a query tab, press ⌘S to keep a query here by name.</div>}
         {hits.map((r) => (
           <button key={r.id} className="hitem" onClick={() => onOpen(r.sql, r.name)}>
-            <b style={{ fontSize: 12 }}>{r.name}</b>
+            <b style={{ fontSize: 14 }}>{r.name}</b>
             <code>{r.sql}</code>
             <small>{fmtAgo(r.updatedAt)}</small>
           </button>
@@ -254,24 +348,32 @@ function QueriesList({ connectionId, onOpen, version }: { connectionId: string; 
 function HistoryList({ connectionId, onOpen, version }: { connectionId: string; onOpen: (sql: string) => void; version: number }) {
   const [rows, setRows] = useState<db.HistoryEntry[]>([]);
   const [q, setQ] = useState("");
+  const [show, setShow] = useState<HistoryFilter>("typed");
   useEffect(() => {
     db.historyFor(connectionId).then(setRows, () => setRows([]));
   }, [connectionId, version]);
-  const hits = useMemo(() => rows.filter((r) => r.sql.toLowerCase().includes(q.toLowerCase())), [rows, q]);
+  const hits = useMemo(() => filterHistory(rows, show, q), [rows, show, q]);
   return (
     <>
       <div className="psearch">
         <input placeholder="Search history" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search history" />
       </div>
+      <div className="seg hseg" role="group" aria-label="Which statements to show">
+        {(["typed", "all"] as const).map((v) => (
+          <button key={v} aria-pressed={show === v} onClick={() => setShow(v)}>
+            {v === "typed" ? "Typed by me" : "All, incl. browsing"}
+          </button>
+        ))}
+      </div>
       <div className="hlist">
-        {hits.length === 0 && <div className="empty">Nothing run yet.</div>}
+        {hits.length === 0 && <div className="empty">{show === "typed" ? "No queries typed yet. Run one in a query tab and it shows up here." : "Nothing run yet."}</div>}
         {hits.map((r) => (
           <button key={r.id} className={"hitem" + (r.error ? " error" : "")} onClick={() => onOpen(r.sql)} title={r.error ?? r.sql}>
             <code>
               <Highlight text={r.sql.replace(/\s+/g, " ")} needle={q} />
             </code>
             <small>
-              {new Date(r.at).toLocaleTimeString()}
+              {sourceLabel(r.source)} · {fmtAgo(r.at)}
               {r.ms !== undefined && ` · ${fmtMs(r.ms)}`}
               {r.rows !== undefined && ` · ${r.rows} rows`}
               {r.error && " · error"}
@@ -281,4 +383,16 @@ function HistoryList({ connectionId, onOpen, version }: { connectionId: string; 
       </div>
     </>
   );
+}
+
+export type HistoryFilter = "typed" | "all";
+
+/** "typed" keeps statements run from a query tab and commits; "all" adds the SELECTs browsing generates. */
+export function filterHistory(rows: db.HistoryEntry[], show: HistoryFilter, needle: string): db.HistoryEntry[] {
+  const n = needle.toLowerCase();
+  return rows.filter((r) => (show === "all" || (r.source ?? "editor") !== "browse") && r.sql.toLowerCase().includes(n));
+}
+
+function sourceLabel(source: db.HistorySource | undefined): string {
+  return { editor: "Typed", browse: "Browsing", apply: "Commit" }[source ?? "editor"];
 }

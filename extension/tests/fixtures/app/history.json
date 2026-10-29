@@ -1,0 +1,6 @@
+[
+  { "id": "h_typed", "connectionId": "c_demo", "sql": "select status, count(*) from orders group by status", "at": 1761700000000, "ms": 12, "rows": 4, "source": "editor" },
+  { "id": "h_browse", "connectionId": "c_demo", "sql": "SELECT * FROM \"public\".\"customers\" LIMIT 200", "at": 1761699990000, "ms": 8, "rows": 200, "source": "browse" },
+  { "id": "h_commit", "connectionId": "c_demo", "sql": "UPDATE \"orders\" SET \"status\" = $1 WHERE \"id\" = $2", "at": 1761699980000, "ms": 3, "source": "apply" },
+  { "id": "h_legacy", "connectionId": "c_demo", "sql": "select 1", "at": 1761699970000, "ms": 1, "rows": 1 }
+]

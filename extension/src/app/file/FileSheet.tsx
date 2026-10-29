@@ -15,6 +15,7 @@ import { navigate } from "../lib/route";
 import * as db from "../store/db";
 import { useResult } from "../conn/useResult";
 import { cycleSort, equalsCondition, filteredSheet, frequencySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
+import { Icon } from "../components/Icon";
 
 type Phase =
   | { kind: "loading" }
@@ -247,8 +248,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   return (
     <div className="sheet">
       <div className="topbar">
-        <button className="btn icon ghost" title="Home" onClick={() => navigate({ name: "home" })}>
-          ⏻
+        <button className="btn icon ghost" title="Home" onClick={() => navigate({ name: "home" })} aria-label="Home">
+          <Icon name="home" />
         </button>
         <nav className="crumbs" aria-label="Sheet stack">
           {stack.map((s, i) => (
@@ -261,7 +262,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
           ))}
         </nav>
         {props.demo && <span className="tag demo">Demo data</span>}
-        <span className="faint" style={{ fontSize: 11.5 }}>
+        <span className="faint" style={{ fontSize: 13 }}>
           {ext}
           {props.size !== undefined && ` · ${fmtBytes(props.size)}`}
           {totalRows !== null && ` · ${fmtInt(totalRows)} rows`}
@@ -278,7 +279,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
       </div>
       {filter !== null ? (
         <div className="bar">
-          <span className="faint" style={{ fontSize: 11.5 }}>
+          <span className="faint" style={{ fontSize: 13 }}>
             WHERE
           </span>
           <input

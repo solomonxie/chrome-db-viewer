@@ -1,13 +1,16 @@
-// SQL query tab: textarea editor, ⌘↵ runs (selection or statement at cursor), ⌘⇧↵ runs all,
-// ⌘. aborts. Pages stream into a read-only grid.
+// SQL query tab: highlighted editor, ⌘↵ runs (selection or statement at cursor), ⌘⇧↵ runs all,
+// ⌘. aborts, ⌘⇧F formats the selection or the whole text. Every run is added to History.
 
 import { useEffect, useRef, useState } from "react";
 import type { CostEstimate } from "@core/types";
 import { DataGrid, type GridCursor } from "../components/DataGrid";
+import { SqlEditor } from "../components/SqlEditor";
+import { Splitter, usePaneWidth } from "../components/Splitter";
 import { TypedConfirm } from "../components/ui";
 import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { findDestructive, isWriteStatement, splitStatements } from "../lib/safety";
 import { MOD, useKeys } from "../lib/keys";
+import { formatRange } from "../lib/sqlFormat";
 import * as db from "../store/db";
 import type { ConnCtx, DetailsSource } from "./model";
 import { useResult } from "./useResult";
@@ -34,7 +37,7 @@ export function QueryView(props: {
   onSaved: () => void;
 }) {
   const { ctx } = props;
-  const { state, run, abort } = useResult(ctx.driver, ctx.addHistory);
+  const { state, run, abort } = useResult(ctx.driver, (h) => ctx.addHistory({ ...h, source: "editor" }));
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState<GridCursor | null>(null);
   const [confirm, setConfirm] = useState<{ sql: string; target: string; what: string } | null>(null);
@@ -101,6 +104,21 @@ export function QueryView(props: {
     execute(sel.trim() ? sel : statementAt(el.value, el.selectionStart));
   };
 
+  const prettify = () => {
+    const el = ta.current;
+    if (!el || !props.sql.trim()) return;
+    try {
+      const r = formatRange(el.value, el.selectionStart, el.selectionEnd, ctx.driver.dialect.name);
+      props.onSql(r.text);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(r.start, r.end);
+      });
+    } catch (e) {
+      ctx.toast((e as Error).message);
+    }
+  };
+
   useKeys(
     props.active
       ? {
@@ -108,6 +126,7 @@ export function QueryView(props: {
           "mod+shift+enter": () => execute(props.sql),
           "mod+.": abort,
           "mod+s": () => void saveQuery(),
+          "mod+shift+f": prettify,
         }
       : {},
   );
@@ -128,16 +147,17 @@ export function QueryView(props: {
   }, [props.active, selection, state.rows, state.columns]);
 
   const overLimit = estimate && estimate.bytes > Number(ctx.cfg.options.maximumBytesBilled ?? 10 * 1024 ** 3);
+  // Height of the editor box (text area only); the results take the rest.
+  const editorPane = usePaneWidth("dbui.pane.editor", 220, 80, 900);
 
   return (
     <div className="center" style={{ display: props.active ? undefined : "none" }}>
-      <div className="editor">
-        <textarea
+      <div className="editor" style={{ "--ed-h": `${editorPane.width}px` } as React.CSSProperties}>
+        <SqlEditor
           ref={ta}
           value={props.sql}
-          onChange={(e) => props.onSql(e.target.value)}
-          spellCheck={false}
-          placeholder={`SELECT * FROM …\n\n${MOD}↵ runs the statement at the cursor, ${MOD}⇧↵ runs all, ${MOD}. stops`}
+          onChange={props.onSql}
+          placeholder={`SELECT * FROM …\n\n${MOD}↵ runs the statement at the cursor, ${MOD}⇧↵ runs all, ${MOD}. stops, ${MOD}⇧F formats`}
           onKeyDown={(e) => {
             if (e.key === "Tab" && !e.shiftKey) {
               e.preventDefault();
@@ -163,8 +183,11 @@ export function QueryView(props: {
           <button className="btn" onClick={() => execute(props.sql)} disabled={state.running}>
             Run all <kbd>{MOD}⇧↵</kbd>
           </button>
-          <button className="btn" onClick={() => void saveQuery()}>
-            Save
+          <button className="btn" onClick={prettify} disabled={!props.sql.trim()} title="Formats the selected SQL, or all of it when nothing is selected">
+            Format <kbd>{MOD}⇧F</kbd>
+          </button>
+          <button className="btn" onClick={() => void saveQuery()} title="Keep this query in the Saved tab">
+            Save <kbd>{MOD}S</kbd>
           </button>
           {ctx.caps.costEstimate && (
             <span className="muted">
@@ -186,6 +209,7 @@ export function QueryView(props: {
           )}
         </div>
       </div>
+      <Splitter side="top" label="Resize editor" size={editorPane} onResize={editorPane.setWidth} />
       {state.running && <div className="loading-bar" />}
       {state.error && <div className="err" style={{ margin: 8 }}>{state.error}</div>}
       {state.columns.length > 0 ? (

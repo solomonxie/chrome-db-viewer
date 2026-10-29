@@ -6,9 +6,11 @@ import type { Cell, Column } from "@core/types";
 import { cellText } from "../lib/format";
 import { isJsonType, isNumericType } from "../lib/coltypes";
 import type { SortSpec } from "../lib/filters";
+import { Icon } from "./Icon";
 
-const ROW_H = 24;
-const HEAD_H = 26;
+// Keep in sync with --row-h / --head-h, which are set on .vgrid from these.
+const ROW_H = 32;
+const HEAD_H = 34;
 const OVERSCAN = 12;
 
 export interface GridCursor {
@@ -43,11 +45,11 @@ export interface DataGridProps {
 
 function defaultWidth(c: Column): number {
   const t = c.type.toLowerCase();
-  if (isNumericType(t)) return 110;
-  if (/bool/.test(t)) return 80;
-  if (/time|date/.test(t)) return 190;
-  if (isJsonType(t)) return 260;
-  return Math.min(260, Math.max(120, c.name.length * 9 + 60));
+  if (isNumericType(t)) return 130;
+  if (/bool/.test(t)) return 96;
+  if (/time|date/.test(t)) return 230;
+  if (isJsonType(t)) return 300;
+  return Math.min(320, Math.max(140, c.name.length * 10 + 70));
 }
 
 export const DataGrid = memo(function DataGrid(p: DataGridProps) {
@@ -73,7 +75,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     return () => ro.disconnect();
   }, []);
 
-  const rnWidth = Math.max(44, String(p.rowCount).length * 8 + 20);
+  const rnWidth = Math.max(52, String(p.rowCount).length * 10 + 24);
   const lefts = useMemo(() => {
     const out: number[] = [];
     let x = rnWidth;
@@ -307,7 +309,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
                     p.onOpenFk!(r, c, e.altKey);
                   }}
                 >
-                  →
+                  <Icon name="arrow-right" className="ico sm" />
                 </button>
               )}
             </>
@@ -343,10 +345,10 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
       aria-rowcount={p.rowCount}
       aria-colcount={p.columns.length}
     >
-      <div className="vgrid" style={{ width: totalW, height: HEAD_H + p.rowCount * ROW_H }}>
+      <div className="vgrid" style={{ width: totalW, height: HEAD_H + p.rowCount * ROW_H, ["--row-h" as string]: `${ROW_H}px`, ["--head-h" as string]: `${HEAD_H}px` }}>
         <div className="hdr" style={{ width: totalW }}>
           <div className="hc rn" style={{ width: rnWidth }} title="Reset column widths" onClick={() => setWidths(p.columns.map(defaultWidth))}>
-            ⟲
+            <Icon name="reset-width" className="ico sm" />
           </div>
           {p.columns.map((c, i) => {
             const s = sortOf(c.name);
