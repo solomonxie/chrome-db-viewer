@@ -20,7 +20,8 @@ export {
   type PendingDownloadPrompt,
 } from "./downloads";
 
-/** The origins the redirect rules need; requested when the user turns the feature on. */
+/** The origins the redirect rules need. Granted at install (manifest host_permissions); only
+ *  missing if the user restricted dbui's site access in Chrome, when Settings offers [Fix]. */
 export const PREVIEW_ORIGINS = ["https://*/*", "http://*/*"];
 
 export async function hasPreviewHostAccess(): Promise<boolean> {

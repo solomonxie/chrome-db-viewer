@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr5oLHI5ry8By+tI3U+hb1l7x2V3RvCOrk+R/Klcg/31IxcPy8wpRuneHAfndeAXfW0s5d77GAVIViSiUxA1wn02QA1yCq/Re6zGsGd0Vqscm7C6E2fyH6rvEX9g5c+YtsySMfZsKXbtLyU+BhPES0i6KCVn00/iEqtB22LVMplsJTfRTTZBawjQoHSR1An4Y78HDpHgQ52t9SrTfa6gXrkzLNfjs+nDbnc9Zl4I4wNIwnzAuKdobllqcgJEFdiRBafkoUvZk4FP4OfWSMRsZUreyVw2Ex94Zo/+jMWhIysmO6NzrLRVoYYOgQFsuW+Ifqe8U4K9px3N8xeBru3PUpwIDAQAB",
   "name": "dbui",
   "version": "0.1.0",
   "description": "Database client and data-file viewer in a full browser tab.",
@@ -33,9 +34,7 @@
   "host_permissions": [
     "https://bigquery.googleapis.com/*",
     "https://oauth2.googleapis.com/*",
-    "https://iamcredentials.googleapis.com/*"
-  ],
-  "optional_host_permissions": [
+    "https://iamcredentials.googleapis.com/*",
     "https://*/*",
     "http://*/*"
   ],
@@ -44,8 +43,20 @@
     "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval' blob:; worker-src blob:; connect-src 'none'; img-src 'none'; style-src 'none'; frame-src 'none'; form-action 'none'"
   },
   "sandbox": {
-    "pages": ["sandbox.html"]
+    "pages": [
+      "sandbox.html"
+    ]
   },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "app.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "cross_origin_embedder_policy": {
     "value": "require-corp"
   },

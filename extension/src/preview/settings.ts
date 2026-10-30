@@ -4,19 +4,30 @@ import { normalizeDomain } from "./rules";
 
 export interface PreviewSettings {
   enabled: boolean;
-  /** Checked extensions without the dot, e.g. ["csv", "jsonl", "parquet", "png"]. */
+  /** Checked extensions without the dot, e.g. ["csv", "jsonl", "parquet"]. */
   extensions: string[];
   excludedDomains: string[];
 }
 
-/** What turning the feature on checks (§3.12): every data group except JSON, plus compression; no media. */
+/** On by default (§3.12): every data group except JSON, plus compression. The all-sites host
+ *  permission the redirect needs is granted at install (manifest host_permissions). */
 export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
-  enabled: false,
+  enabled: true,
   extensions: ["csv", "tsv", "psv", "jsonl", "ndjson", "parquet", "arrow", "feather", "duckdb", "sqlite", "db", "gz", "zst"],
   excludedDomains: [],
 };
 
 export const PREVIEW_SETTINGS_KEY = "previewSettings";
+
+/** Image and video extensions older versions could check. Dropped on load so saved state from
+ *  those versions can't bring media matching back. */
+export const LEGACY_MEDIA_EXTENSIONS: readonly string[] = [
+  "png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "heic", "tiff", "mp4", "webm", "mov", "m4v", "mkv",
+];
+
+function isLegacyMedia(ext: string): boolean {
+  return LEGACY_MEDIA_EXTENSIONS.includes(ext.trim().toLowerCase().replace(/^\./, ""));
+}
 
 /** The stored settings merged over the defaults; tolerates a missing or partial value. */
 export async function loadPreviewSettings(): Promise<PreviewSettings> {
@@ -28,7 +39,7 @@ export function mergeSettings(raw: unknown): PreviewSettings {
   const v = (raw && typeof raw === "object" ? raw : {}) as Partial<PreviewSettings>;
   return {
     enabled: typeof v.enabled === "boolean" ? v.enabled : DEFAULT_PREVIEW_SETTINGS.enabled,
-    extensions: Array.isArray(v.extensions) ? v.extensions.filter((e) => typeof e === "string") : [...DEFAULT_PREVIEW_SETTINGS.extensions],
+    extensions: Array.isArray(v.extensions) ? v.extensions.filter((e) => typeof e === "string" && !isLegacyMedia(e)) : [...DEFAULT_PREVIEW_SETTINGS.extensions],
     excludedDomains: Array.isArray(v.excludedDomains) ? v.excludedDomains.filter((e) => typeof e === "string") : [],
   };
 }

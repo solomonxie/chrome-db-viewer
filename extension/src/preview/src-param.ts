@@ -1,4 +1,4 @@
-// Reading `?src=` on app.html / media.html.
+// Reading `?src=` on app.html.
 //
 // The redirect rule substitutes the original URL verbatim (`app.html?src=\0`), so it is NOT
 // percent-encoded: `https://b.s3.amazonaws.com/a.parquet?X-Amz-Signature=..&X-Amz-Date=..` arrives

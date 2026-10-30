@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "extensions": ["csv", "parquet", "gz", "png", "JPG", ".jpeg", "gif", "webp", "avif", "svg", "heic", "tiff", "mp4", "webm", "mov", "m4v", "mkv"],
+  "excludedDomains": ["example.org"]
+}

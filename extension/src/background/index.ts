@@ -22,6 +22,10 @@ async function resync(): Promise<void> {
   }
 }
 
+// Every service-worker start (browser start, extension reload, wake-up after idle) resyncs:
+// onStartup doesn't fire on an extension reload, and dynamic rules must match the settings,
+// which default to on (§3.12).
+void resync();
 chrome.runtime.onStartup.addListener(() => void resync());
 chrome.runtime.onInstalled.addListener(() => void resync());
 

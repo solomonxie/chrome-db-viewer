@@ -96,11 +96,9 @@ export async function dismissDownloadPrompt(downloadId: number): Promise<void> {
   await chrome.storage.session.remove(DOWNLOAD_PROMPT_PREFIX + downloadId);
 }
 
-/** The page a finished/refetchable download opens in: media.html for images/video, else app.html#file. */
-export function viewerUrlFor(src: string, kind: PreviewKind): string {
-  return kind === "media"
-    ? buildSrcUrl(chrome.runtime.getURL("media.html"), src)
-    : buildSrcUrl(chrome.runtime.getURL("app.html"), src, "#file");
+/** The page a finished/refetchable download opens in: app.html#file. */
+export function viewerUrlFor(src: string): string {
+  return buildSrcUrl(chrome.runtime.getURL("app.html"), src, "#file");
 }
 
 function fileUrlFromPath(path: string): string {
@@ -152,16 +150,13 @@ export async function openDownloadInDbui(downloadId: number): Promise<string> {
   const pending = await getPendingDownloadPrompt(downloadId);
   const item = await findDownload(downloadId);
   const url = pending?.url ?? (item ? item.finalUrl || item.url : "");
-  const settings = await loadPreviewSettings();
-  const name = pending?.filename ?? (item ? baseName(item.filename) : "");
-  const kind: PreviewKind = pending?.kind ?? (classifyFilename(name, { ...settings, enabled: true }) ?? "data");
 
   let target: string;
   if (isRefetchable(url) && pending?.refetchable !== false) {
-    target = viewerUrlFor(url, kind);
+    target = viewerUrlFor(url);
   } else {
     const done = item?.state === "complete" ? item : await waitForDownloadComplete(downloadId);
-    target = viewerUrlFor(fileUrlFromPath(done.filename), kind);
+    target = viewerUrlFor(fileUrlFromPath(done.filename));
   }
   await chrome.tabs.create({ url: target, active: true });
   await dismissDownloadPrompt(downloadId);
