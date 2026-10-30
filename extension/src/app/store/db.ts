@@ -2,11 +2,12 @@
 // Holds connection settings (minus secrets), history, saved queries and recent file handles.
 
 import type { ConnectionConfig, ObjectType } from "@core/types";
+import type { Chain, Collection, Folder, NamedQuery } from "../../collections/model";
 
 const DB_NAME = "dbui";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
-export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles";
+export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles" | "collections" | "folders" | "namedQueries" | "chains";
 
 export interface SavedConnection extends ConnectionConfig {
   group?: string;
@@ -78,7 +79,15 @@ type Row<S extends StoreName> = S extends "connections"
         ? RecentFile
         : S extends "handles"
           ? StoredHandle
-          : Group;
+          : S extends "collections"
+            ? Collection
+            : S extends "folders"
+              ? Folder
+              : S extends "namedQueries"
+                ? NamedQuery
+                : S extends "chains"
+                  ? Chain
+                  : Group;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -93,6 +102,11 @@ function open(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("history")) {
         db.createObjectStore("history", { keyPath: "id" }).createIndex("connectionId", "connectionId");
+      }
+      // Collections (DESIGN.md §3.14–3.15): children are looked up by collectionId.
+      if (!db.objectStoreNames.contains("collections")) db.createObjectStore("collections", { keyPath: "id" });
+      for (const name of ["folders", "namedQueries", "chains"]) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" }).createIndex("collectionId", "collectionId");
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -133,6 +147,12 @@ export async function historyFor(connectionId: string, limit = 500): Promise<His
   const store = await tx("history", "readonly");
   const rows = (await wrap(store.index("connectionId").getAll(connectionId))) as HistoryEntry[];
   return rows.sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+/** Folders, named queries or chains belonging to one collection. */
+export async function byCollection<S extends "folders" | "namedQueries" | "chains">(name: S, collectionId: string): Promise<Row<S>[]> {
+  const store = await tx(name, "readonly");
+  return (await wrap(store.index("collectionId").getAll(collectionId))) as Row<S>[];
 }
 
 export const uid = (prefix = "") => prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 10);

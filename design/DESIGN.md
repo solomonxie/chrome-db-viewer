@@ -530,6 +530,158 @@ files on older versions.
 - **ClickHouse guard**: previews add `max_result_rows` with `result_overflow_mode=break`,
   and every query sets `max_execution_time`.
 
+### 3.14 Collections: named queries, variables and templates
+
+A **Collection** is a notebook of named queries, like a Postman collection, but for SQL.
+Queries are **Jinja templates**. dbui fills in variables and includes, shows you the exact
+SQL it will send, and only then runs it.
+
+**Structure**
+```
+Collection "Ad performance"           variables: client_id, start_date, end_date, model
+├─ folder "Base"
+│   ├─ sales_metrics      (connection: Acme BigQuery)
+│   └─ fb_ads
+├─ ad_report_daily        {% include "Base/sales_metrics" %} … joins fb_ads
+└─ top_ads_by_roas        uses ad_report_daily
+```
+- **A query** has a name, SQL template, connection (or "the collection's default"),
+  description, and variable defaults.
+- **A collection** has a default connection, collection variables, and **environments**
+  (like Postman): named sets of values, e.g. `dev` → `client_id = 1111…`, `prod-client-A` →
+  `client_id = 4c1e…`. A dropdown picks the active one.
+- **Storage:** IndexedDB on this machine. Collections export and import as one JSON file, or
+  as a folder of `.sql` files plus `collection.yaml`, so they can live in git.
+- **Never in exports:** variable values marked **secret** are kept in the SecretStore and
+  left out of exports.
+
+**From History to a named query.** Every History entry has **Save as named query…**:
+1. pick a collection and folder, and give it a name;
+2. dbui offers to **turn literals into variables**. It finds string, number and date
+   literals in the SQL (e.g. `'2026-10-01'`, `'last_touch'`) and lists them with a
+   suggested name, so `WHERE localdate >= '2026-10-01'` becomes
+   `WHERE localdate >= {{ start_date | sql }}` with the old value as the default;
+3. dataset or schema names that look like a tenant (`production__<uuid>`) are offered as a
+   variable too, so the same query works for every client.
+
+**Template syntax: Jinja2**, rendered in the browser with a Jinja engine
+(`@huggingface/jinja`, pinned), plus a few dbui helpers:
+
+| Syntax | Meaning |
+|---|---|
+| `{{ start_date }}` | Variable, inserted as is (for identifiers and fragments) |
+| `{{ start_date \| sql }}` | Variable as a **SQL literal** in the connection's dialect: quoted and escaped strings, `NULL`, numbers, `DATE '…'` |
+| `{{ ids \| sql_list }}` | List → `(1, 2, 3)` / `('a', 'b')` |
+| `{{ table \| ident }}` | Quoted identifier (`` `x` `` in BigQuery, `"x"` in Postgres) |
+| `{% include "Base/sales_metrics" %}` | Paste another query's rendered SQL (same variables) |
+| `{{ ref("ad_report_daily") }}` | Use another query **as a table**: becomes a CTE, a subquery, or a materialised table name (chains, §3.15) |
+| `{% if model %} … {% endif %}`, `{% for … %}` | Normal Jinja control flow |
+| `{{ var("days", 7) }}` | Variable with a default |
+
+- **Includes and `ref`** resolve by path within the collection, are rendered recursively,
+  and a cycle (`a` includes `b` includes `a`) is an error naming the loop.
+- `{{ x }}` without `| sql` is allowed but the editor underlines it in amber when it sits where a
+  value belongs (after `=`, `IN`, `>`…), because pasting raw text there is an injection risk.
+  For values, the `| sql` filter is the safe default, and the "turn literals into variables"
+  step always uses it.
+
+**Detecting parameters.** As you type, dbui parses the template (Jinja AST, including inside
+includes) and lists every variable it uses. Before Run:
+- A **Parameters** panel shows each one with its value from the active environment, the query
+  default, or empty. Types are inferred from the default or name (`*_date` → date picker,
+  `*_ids` → list, `limit`/`days` → number), and can be set by hand.
+- Missing values block Run and the panel opens. Values you fill in can be kept for the
+  session, saved as the query default, or saved to the active environment.
+- Plain SQL parameters (`@start_date` in BigQuery, `$1` in Postgres, `?` in SQLite) are
+  detected too and get the same panel. Those values are sent as real query parameters, not
+  pasted into the text.
+
+**Rendered SQL, always visible.** Next to the template, a **Rendered** tab shows the final SQL
+exactly as it will be sent, updated live, with includes expanded and literals inlined. That's
+the same text the SQL strip and History record. For BigQuery the dry-run estimate runs on
+the rendered SQL. **Copy rendered SQL** is one click.
+
+**Pre-run and post-run scripts (like Postman).** Any named query, folder or collection can
+have two optional JavaScript scripts. They run in the script sandbox (§3.15) with a small
+`db` object, like Postman's `pm`:
+
+| Script | Runs | Typical uses |
+|---|---|---|
+| **Pre-run** | After variables are resolved, before rendering | Compute variables (`db.vars.set("end_date", today())`, `start_date = end_date - 7 days`); pick an environment value; check inputs and stop with a message (`db.fail("client_id is required")`) |
+| **Post-run** | After the result arrives | Assertions (`db.test("has rows", rowCount > 0)`); pull values out of the result into variables for the next query (`db.vars.set("top_ids", db.result.column("ad_hash"))`); reshape rows for display; summarise |
+
+- **Order**, as in Postman: collection pre → folder pre → query pre → **render and run** →
+  query post → folder post → collection post. A script can only see and change variables
+  and the result. It can't change the SQL text directly, so the Rendered tab always shows
+  exactly what ran.
+- **The `db` API:**
+  - `db.vars.get/set/unset` and `db.env.get/set` (writing to the environment asks first)
+  - `db.result.rows`, `db.result.columns`, `db.result.column(name)` and `db.result.rowCount`
+    (post-run only)
+  - `db.test(name, bool)`, `db.fail(msg)`, `db.log(...)`, and date helpers
+- **Results:** test results appear in a **Tests** tab next to the results (pass/fail per
+  assertion), and `db.log` output in a **Console** tab. A failed pre-run script stops the run.
+- **Variables carry over:** variables set in post-run scripts persist for the session, so
+  running query A then query B in the same collection works like a two-step flow without
+  building a chain. Chains reuse the same scripts: a query step runs its pre and post scripts too.
+
+### 3.15 Chains: multi-step pipelines (dbt-style)
+
+A **Chain** runs several steps in order, where later steps use earlier steps' output, like a
+small dbt project inside dbui. Chains live in collections.
+
+**Step kinds**
+
+| Kind | What it does | Output |
+|---|---|---|
+| **Query** | Runs a named query (or inline SQL) on a connection, with chain variables | A result table |
+| **Transform: SQL** | Runs SQL over earlier steps' results **locally in DuckDB-WASM**, e.g. `SELECT … FROM {{ ref("sales") }} JOIN {{ ref("ads") }}` even when `sales` came from BigQuery and `ads` from Postgres | A result table |
+| **Transform: script** | Runs a JavaScript function on earlier results, in a sandboxed Web Worker: `(inputs, vars) => rows \| { rows, vars }` | A result table and/or new variables |
+| **Set variables** | Picks values out of a result for later steps, e.g. `top_ad_ids = column "ad_hash" of step "top_ads"`, `max_date = max(localdate)` | Variables |
+| **Export** | Writes a result to a file (CSV, JSONL, Parquet) through the file picker | A file |
+| **Assert** | A check, e.g. "row count > 0" or "no NULL ad_id". Fails the chain when not met | Pass/fail |
+
+So a **middle step that converts one step's output into the next step's input** is either:
+- **Transform: SQL**, for reshaping, joining, filtering or aggregating with SQL. It runs on
+  this machine in DuckDB, so it works across different databases and costs nothing on the warehouse;
+- **Transform: script**, for logic that's awkward in SQL (parsing JSON, calling a formula,
+  building a list);
+- **Set variables**, when the next step needs *values* rather than a table (a list of IDs, a
+  date). For example, step 1 finds yesterday's top 50 ads in BigQuery, a Set variables step
+  turns them into `top_ad_ids`, and step 3 runs `WHERE ad_hash IN {{ top_ad_ids | sql_list }}`
+  on Postgres.
+
+**How data flows between steps**
+- Each step's result is loaded into the chain's **local DuckDB** as table `step_<name>`, which
+  `{{ ref("name") }}` points at in transforms.
+- When a **Query** step refers to an earlier step on the **same warehouse connection**, dbui
+  inlines it as a CTE, so BigQuery does the work and nothing is downloaded. Across
+  connections, the earlier result is passed as values (`sql_list`, a `VALUES` list, or a
+  BigQuery `UNNEST` array parameter), up to a size limit (default 10,000 values). Above
+  that, the step must be a local transform.
+- **Graph:** steps form a graph from their `ref`s. dbui orders them, runs independent steps
+  in parallel, and refuses a cycle.
+
+**Running**
+- **Run all**, **Run from here**, or **Run only this step**. Each step shows status,
+  row count, time and bytes billed (BigQuery). Click a step to see its rendered SQL and a result preview.
+- **Results are cached** per step by rendered SQL plus input hashes, so changing step 4 doesn't
+  re-run steps 1–3. Clearing the cache forces a full run.
+- **Cost guard:** before Run all, BigQuery steps are dry-run together and the total
+  estimate is shown. The run stops if any single step is over the connection's cost guard.
+- **Safety:** write statements in a chain step follow the connection's Read-only and production
+  rules. A chain can't bypass them.
+
+**Script sandbox.** Script steps run in a dedicated Web Worker with no network (`fetch`,
+`XMLHttpRequest` and `importScripts` are removed), no access to extension APIs, secrets or
+other tabs, a time limit (default 30 s) and a row limit. They see only their declared inputs
+and chain variables. MV3 forbids `eval`, so scripts run in a sandboxed extension page
+(`"sandbox"` in the manifest), which is the supported way to run user code in an extension.
+
+**Not in v1:** schedules, incremental models, writing results back to a warehouse table
+(`materialized: table` in dbt terms), and Python steps. Python could come later via Pyodide in
+the same sandbox.
+
 ---
 
 ## 4. UI
@@ -790,6 +942,9 @@ chrome-db-viewer/
 | M7 | **Redis** key browser + value editors (runner) | SCAN 1M keys, edit hash/zset values |
 | M8 | Runner extras: native DuckDB, ClickHouse native protocol, gcloud ADC, workload identity federation | DuckDB engine "Auto" switches to the runner when it's installed |
 | M9 | Export (runner writes files), runner update flow, polish, Web Store listing, OAuth verification | Public beta |
+| M10 | **Collections** (§3.14): collections, folders, environments, Jinja templates with `sql`/`ident`/`sql_list` filters, `include`, parameter detection and panel, Rendered tab, History → named query with literal-to-variable, JSON and folder export | Save a History query as a named query with `start_date` turned into a variable, run it in two environments, and see the rendered SQL each time |
+| M11 | **Chains** (§3.15): Query, Transform SQL, Set variables, Export and Assert steps, `ref()` graph, local DuckDB step tables, CTE inlining on the same connection, step cache, combined dry run | A 3-step chain: BigQuery top ads → Set variables → Postgres lookup by those IDs, re-running only the last step after an edit |
+| M12 | **Scripts**: pre-run and post-run scripts on queries, folders and collections (the `db` API, Tests and Console tabs); chain **Transform: script** steps; all in the sandboxed page. Collection import/export as a git-friendly folder | A post-run script asserts a row count and sets `top_ids`, the next query uses them, and a script step reshapes JSON into rows |
 
 Everything before M5 needs no runner, so the extension is useful from the first release.
 
@@ -802,6 +957,8 @@ Everything before M5 needs no runner, so the extension is useful from the first 
 | **MongoDB** | Runner driver on `mongo-cxx-driver` (or `libmongoc` to save ~15 MB). Document view (JSON or flattened table), filter as a Mongo query, aggregation pipeline editor; edits become `updateOne({_id}, {$set: …})` inside `withTransaction`. The current mockup already shows this view. |
 | **Snowflake** | Default: **SQL API v2** (`POST /api/v2/statements`) straight from the extension, like ClickHouse HTTP. Auth with key-pair JWT (signed with WebCrypto) or OAuth; results arrive in partitions that map onto pages. Host permission requested for `https://<account>.snowflakecomputing.com`. A runner driver (ADBC) only if the SQL API proves too limited. |
 | Excel files | `.xlsx` sheets through the DuckDB `excel` extension (runner), or a bundled JS parser in the browser |
+| Chain schedules and write-back | Run a chain on a schedule (needs the runner or the team gateway to run without a tab open); write a step's result to a warehouse table, dbt `materialized: table` style |
+| Python steps | Pyodide in the chain sandbox, for pandas-style transforms |
 | Team gateway | Self-hosted server speaking the runner protocol over WebSocket, for shared connections, SSO and audit |
 | Vendor HTTP drivers | Neon serverless Postgres, Supabase, Upstash Redis REST: Postgres/Redis without the runner for those vendors |
 | Windows / Linux runner | Same code, registry or `~/.config` manifest location |

@@ -1,0 +1,153 @@
+{
+  "collection": {
+    "id": "col_adperf",
+    "name": "Ad performance",
+    "defaultConnectionId": "c_nb_bq",
+    "vars": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "value": "production__1111aaaa_0000_0000_0000_000000000000"
+      },
+      {
+        "name": "start_date",
+        "type": "date",
+        "value": "2026-01-01"
+      },
+      {
+        "name": "end_date",
+        "type": "date",
+        "value": "2026-01-31"
+      },
+      {
+        "name": "model",
+        "type": "string",
+        "value": "linear"
+      },
+      {
+        "name": "api_token",
+        "type": "string",
+        "value": "tok-collection-secret",
+        "secret": true
+      }
+    ],
+    "environments": [
+      {
+        "id": "env_dev",
+        "name": "dev",
+        "values": {
+          "dataset": "production__1111aaaa_0000_0000_0000_000000000000",
+          "api_token": "tok-dev-secret"
+        }
+      },
+      {
+        "id": "env_a",
+        "name": "prod-client-A",
+        "values": {
+          "dataset": "production__4c1e7a2b_8d3f_4e5a_9b6c_1a2b3c4d5e6f",
+          "start_date": "2026-10-01",
+          "api_token": "tok-prod-secret"
+        }
+      }
+    ],
+    "activeEnvironmentId": "env_a",
+    "scripts": {
+      "pre": "db.vars.set('ran_collection_pre', true)"
+    },
+    "createdAt": 1767225600000,
+    "updatedAt": 1767225600000
+  },
+  "folders": [
+    {
+      "id": "fld_base",
+      "collectionId": "col_adperf",
+      "name": "Base"
+    },
+    {
+      "id": "fld_loop",
+      "collectionId": "col_adperf",
+      "name": "Loop"
+    }
+  ],
+  "queries": [
+    {
+      "id": "nq_sales",
+      "collectionId": "col_adperf",
+      "folderId": "fld_base",
+      "name": "sales_metrics",
+      "sql": "@templates/sales_metrics.sql",
+      "vars": [
+        {
+          "name": "start_date",
+          "type": "date",
+          "value": "2026-09-01"
+        }
+      ],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_fb",
+      "collectionId": "col_adperf",
+      "folderId": "fld_base",
+      "name": "fb_ads",
+      "sql": "@templates/fb_ads.sql",
+      "vars": [
+        {
+          "name": "account_id",
+          "type": "number",
+          "value": 4242
+        },
+        {
+          "name": "fb_token",
+          "type": "string",
+          "value": "fb-query-secret",
+          "secret": true
+        }
+      ],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_daily",
+      "collectionId": "col_adperf",
+      "name": "ad_report_daily",
+      "sql": "@templates/ad_report_daily.sql",
+      "vars": [],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_top",
+      "collectionId": "col_adperf",
+      "name": "top_ads_by_roas",
+      "sql": "@templates/top_ads_by_roas.sql",
+      "vars": [],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_ca",
+      "collectionId": "col_adperf",
+      "folderId": "fld_loop",
+      "name": "cycle_a",
+      "sql": "@templates/cycle_a.sql",
+      "vars": [],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_cb",
+      "collectionId": "col_adperf",
+      "folderId": "fld_loop",
+      "name": "cycle_b",
+      "sql": "@templates/cycle_b.sql",
+      "vars": [],
+      "updatedAt": 1767225600000
+    },
+    {
+      "id": "nq_cc",
+      "collectionId": "col_adperf",
+      "folderId": "fld_loop",
+      "name": "cycle_c",
+      "sql": "@templates/cycle_c.sql",
+      "vars": [],
+      "updatedAt": 1767225600000
+    }
+  ]
+}

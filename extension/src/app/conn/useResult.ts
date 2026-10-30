@@ -23,7 +23,7 @@ export function useResult(driver: Driver, onDone?: (r: { sql: string; ms?: numbe
   doneRef.current = onDone;
 
   const run = useCallback(
-    async (sql: string, opts: { pageSize?: number; keepRows?: boolean } = {}) => {
+    async (sql: string, opts: { pageSize?: number; keepRows?: boolean; params?: Cell[] } = {}) => {
       ac.current?.abort();
       const ctrl = new AbortController();
       ac.current = ctrl;
@@ -41,7 +41,7 @@ export function useResult(driver: Driver, onDone?: (r: { sql: string; ms?: numbe
       let rows: Cell[][] = [];
       let lastFlush = 0;
       try {
-        const gen = driver.execute({ sql, pageSize: opts.pageSize ?? 2000 }, ctrl.signal);
+        const gen = driver.execute({ sql, pageSize: opts.pageSize ?? 2000, ...(opts.params?.length ? { params: opts.params } : {}) }, ctrl.signal);
         for (;;) {
           const next = await gen.next();
           if (ctrl.signal.aborted) throw new Error("aborted");
