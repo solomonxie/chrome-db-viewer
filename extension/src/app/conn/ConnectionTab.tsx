@@ -25,6 +25,7 @@ import { TableView } from "./TableView";
 import { newEntry, pathKey, type ConnCtx, type DetailsSource, type EditMode, type TableEntry, type WorkTab } from "./model";
 import { historyTarget } from "./historyTab";
 import { Icon } from "../components/Icon";
+import type { NamedQuery } from "../../collections/model";
 
 type Phase =
   | { kind: "loading" }
@@ -238,6 +239,8 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const [reloadKey, setReloadKey] = useState(0);
   const [treeKey, setTreeKey] = useState(0);
   const [historyVersion, setHistoryVersion] = useState(0);
+  /** Query tabs bound to a named query (Collections): tab id → named query id. */
+  const [boundTabs, setBoundTabs] = useState<Record<string, string>>({});
   const [log, setLog] = useState<{ sql: string; ms?: number; rows?: number; error?: string; at: number }[]>([]);
   const [showLog, setShowLog] = useState(false);
   const nodeTypes = useRef(new Map<string, ObjectType>()).current;
@@ -337,6 +340,15 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     setActiveTab(t.id);
   };
 
+  const openNamedQuery = (q: NamedQuery) => {
+    const existing = Object.entries(boundTabs).find(([tid, qid]) => qid === q.id && tabs.some((t) => t.id === tid));
+    if (existing) return setActiveTab(existing[0]);
+    const t: WorkTab = { id: tabId(), kind: "query", title: q.name, sql: q.sql };
+    setBoundTabs((b) => ({ ...b, [t.id]: q.id }));
+    setTabs((ts) => [...ts, t]);
+    setActiveTab(t.id);
+  };
+
   const openFromHistory = (sql: string) => {
     const target = historyTarget(tabs, activeTab, sql);
     if ("focus" in target) return setActiveTab(target.focus);
@@ -381,7 +393,8 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   };
 
   const commit = () => {
-    if (count === 0) return props.toast("No pending changes");
+    // In a query tab ⌘S saves the query (QueryView); only commit when there's something to commit.
+    if (count === 0) return active?.kind === "query" ? undefined : props.toast("No pending changes");
     if (cfg.env === "production") setDrawer({ confirm: true });
     else void apply();
   };
@@ -502,7 +515,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       </div>
 
       <div className="panes" style={{ gridTemplateColumns: cols }}>
-        {showLeft && <LeftPane ctx={ctx} activePath={activeEntry?.path ?? null} onOpen={openTable} onOpenSql={openSql} onOpenHistory={openFromHistory} historyVersion={historyVersion} refreshKey={treeKey} />}
+        {showLeft && <LeftPane ctx={ctx} activePath={activeEntry?.path ?? null} onOpen={openTable} onOpenSql={openSql} onOpenHistory={openFromHistory} historyVersion={historyVersion} refreshKey={treeKey} onOpenNamedQuery={openNamedQuery} activeNamedQueryId={activeTab ? boundTabs[activeTab] : undefined} />}
         {showLeft && <Splitter side="left" label="Resize object tree" size={leftPane} onResize={leftPane.setWidth} />}
         <div className="center">
           {readOnly && (
@@ -583,6 +596,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 ctx={ctx}
                 sql={t.sql}
                 title={t.title}
+                namedQueryId={boundTabs[t.id]}
                 active={t.id === activeTab}
                 onSql={(sql) => setTabs((ts) => ts.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, sql } : x)))}
                 onDetails={setDetails}

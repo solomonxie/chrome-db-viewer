@@ -8,6 +8,10 @@ import { Highlight } from "../components/ui";
 import { pathKey, type ConnCtx } from "./model";
 import { Icon } from "../components/Icon";
 import { isFavorite, loadFavorites, saveFavorites, toggleFavorite, type Favorite } from "../lib/favorites";
+import type { NamedQuery } from "../../collections/model";
+import { CollectionsTree } from "../collections/CollectionsTree";
+import { SaveAsNamedQuery } from "../collections/SaveAsNamedQuery";
+import { ContextMenu } from "../components/ui";
 
 const ICON: Partial<Record<ObjectType, string>> = {
   database: "◫", schema: "◇", group: "", table: "▦", view: "◰", materialized_view: "◲",
@@ -38,10 +42,13 @@ export function LeftPane(props: {
   onOpenHistory?: (sql: string) => void;
   historyVersion: number;
   refreshKey: number;
+  /** Collections tab: open a named query in a query tab bound to it. */
+  onOpenNamedQuery?: (q: NamedQuery) => void;
+  activeNamedQueryId?: string;
 }) {
   const { ctx } = props;
   const { driver, nodeTypes } = ctx;
-  const [tab, setTab] = useState<"items" | "queries" | "history">("items");
+  const [tab, setTab] = useState<"items" | "queries" | "collections" | "history">("items");
   const [q, setQ] = useState("");
   const [hidden, setHidden] = useState<Set<ObjectType>>(new Set());
   const [showTypeMenu, setShowTypeMenu] = useState(false);
@@ -200,7 +207,7 @@ export function LeftPane(props: {
   return (
     <div className="pane-left">
       <div className="ptabs" role="tablist">
-        {(["items", "queries", "history"] as const).map((t) => (
+        {(["items", "queries", "collections", "history"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} title={TAB_HINT[t]}>
             {TAB_LABEL[t]}
           </button>
@@ -253,7 +260,19 @@ export function LeftPane(props: {
         </>
       )}
       {tab === "queries" && <QueriesList connectionId={ctx.cfg.id} onOpen={props.onOpenSql} version={props.historyVersion} />}
-      {tab === "history" && <HistoryList connectionId={ctx.cfg.id} onOpen={props.onOpenHistory ?? props.onOpenSql} version={props.historyVersion} />}
+      {tab === "collections" && <CollectionsTree onOpenQuery={(q) => props.onOpenNamedQuery?.(q)} activeQueryId={props.activeNamedQueryId} toast={ctx.toast} />}
+      {tab === "history" && (
+        <HistoryList
+          connectionId={ctx.cfg.id}
+          onOpen={props.onOpenHistory ?? props.onOpenSql}
+          version={props.historyVersion}
+          dialect={ctx.driver.dialect.name}
+          onSavedNamed={(q) => {
+            setTab("collections");
+            props.onOpenNamedQuery?.(q);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -310,10 +329,11 @@ function FavoritesSection(props: {
   );
 }
 
-const TAB_LABEL = { items: "Items", queries: "Saved", history: "History" } as const;
+const TAB_LABEL = { items: "Items", queries: "Saved", collections: "Collections", history: "History" } as const;
 const TAB_HINT = {
   items: "Tables, views and other objects",
   queries: "Queries you saved by name (⌘S in a query tab)",
+  collections: "Named queries with variables and environments, shared across connections",
   history: "Every statement run on this connection, newest first",
 } as const;
 
@@ -345,8 +365,10 @@ function QueriesList({ connectionId, onOpen, version }: { connectionId: string; 
   );
 }
 
-function HistoryList({ connectionId, onOpen, version }: { connectionId: string; onOpen: (sql: string) => void; version: number }) {
+function HistoryList({ connectionId, onOpen, version, dialect, onSavedNamed }: { connectionId: string; onOpen: (sql: string) => void; version: number; dialect: ConnCtx["driver"]["dialect"]["name"]; onSavedNamed: (q: NamedQuery) => void }) {
   const [rows, setRows] = useState<db.HistoryEntry[]>([]);
+  const [menu, setMenu] = useState<{ x: number; y: number; sql: string } | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [show, setShow] = useState<HistoryFilter>("typed");
   useEffect(() => {
@@ -368,7 +390,16 @@ function HistoryList({ connectionId, onOpen, version }: { connectionId: string; 
       <div className="hlist">
         {hits.length === 0 && <div className="empty">{show === "typed" ? "No queries typed yet. Run one in a query tab and it shows up here." : "Nothing run yet."}</div>}
         {hits.map((r) => (
-          <button key={r.id} className={"hitem" + (r.error ? " error" : "")} onClick={() => onOpen(r.sql)} title={r.error ?? r.sql}>
+          <button
+            key={r.id}
+            className={"hitem" + (r.error ? " error" : "")}
+            onClick={() => onOpen(r.sql)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ x: e.clientX, y: e.clientY, sql: r.sql });
+            }}
+            title={r.error ?? r.sql}
+          >
             <code>
               <Highlight text={r.sql.replace(/\s+/g, " ")} needle={q} />
             </code>
@@ -377,10 +408,35 @@ function HistoryList({ connectionId, onOpen, version }: { connectionId: string; 
               {r.ms !== undefined && ` · ${fmtMs(r.ms)}`}
               {r.rows !== undefined && ` · ${r.rows} rows`}
               {r.error && " · error"}
+              <span
+                className="hsave"
+                role="button"
+                title="Save as named query…"
+                aria-label="Save as named query…"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSaving(r.sql);
+                }}
+              >
+                Save as…
+              </span>
             </small>
           </button>
         ))}
       </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "Open", onClick: () => onOpen(menu.sql) },
+            { label: "Copy SQL", onClick: () => void navigator.clipboard.writeText(menu.sql) },
+            { label: "Save as named query…", onClick: () => setSaving(menu.sql) },
+          ]}
+        />
+      )}
+      {saving !== null && <SaveAsNamedQuery sql={saving} dialect={dialect} connectionId={connectionId} onClose={() => setSaving(null)} onSaved={onSavedNamed} />}
     </>
   );
 }
