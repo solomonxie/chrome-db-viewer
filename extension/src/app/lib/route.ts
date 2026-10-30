@@ -8,7 +8,8 @@ export type Route =
   | { name: "connection"; connectionId: string }
   | { name: "file"; src?: string; fileHandleId?: string }
   | { name: "settings"; section?: string }
-  | { name: "download-prompt"; downloadId: number };
+  | { name: "download-prompt"; downloadId: number }
+  | { name: "chain"; chainId: string };
 
 export function parseRoute(hash: string, search = ""): Route {
   const sp = readSrcParam(search, hash);
@@ -24,6 +25,7 @@ export function parseRoute(hash: string, search = ""): Route {
     const section = h.slice(9);
     return section ? { name: "settings", section: decodeURIComponent(section) } : { name: "settings" };
   }
+  if (h.startsWith("chain/") && h.length > 6) return { name: "chain", chainId: decodeURIComponent(h.slice(6)) };
   if (h.startsWith("download-prompt")) {
     const id = Number(new URLSearchParams(h.split("?")[1] ?? "").get("id"));
     if (Number.isInteger(id) && id >= 0) return { name: "download-prompt", downloadId: id };
@@ -44,6 +46,8 @@ export function routeHash(route: Route): string {
       return route.section ? `#settings/${encodeURIComponent(route.section)}` : "#settings";
     case "download-prompt":
       return `#download-prompt?id=${route.downloadId}`;
+    case "chain":
+      return `#chain/${encodeURIComponent(route.chainId)}`;
   }
 }
 

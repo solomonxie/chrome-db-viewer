@@ -1,0 +1,7 @@
+{
+  "id": "ch_cross", "collectionId": "col1", "name": "Cross-connection ref", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "sales", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "names", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads JOIN {{ ref('sales') }} s USING (ad_hash)" }
+  ]
+}

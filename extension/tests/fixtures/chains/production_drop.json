@@ -1,0 +1,6 @@
+{
+  "id": "ch_prod", "collectionId": "col1", "name": "Drop on production", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "drop_it", "kind": "query", "connectionId": "pg_prod", "sql": "DROP TABLE ads" }
+  ]
+}

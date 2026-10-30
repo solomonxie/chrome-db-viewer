@@ -1,0 +1,23 @@
+{
+  "collection": {
+    "id": "col1", "name": "Ad performance", "defaultConnectionId": "bq",
+    "vars": [{ "name": "min_revenue", "value": 50 }],
+    "environments": [{ "id": "e1", "name": "dev", "values": { "min_revenue": 100 } }],
+    "activeEnvironmentId": "e1",
+    "scripts": { "post": "db.test('collection post', true)" },
+    "createdAt": 0, "updatedAt": 0
+  },
+  "folders": [{ "id": "f1", "collectionId": "col1", "name": "Base" }],
+  "queries": [
+    { "id": "q1", "collectionId": "col1", "folderId": "f1", "name": "top_ads", "vars": [], "updatedAt": 0,
+      "sql": "SELECT ad_hash, revenue FROM ads_daily WHERE revenue >= {{ min_revenue | sql }} ORDER BY revenue DESC LIMIT {{ limit }}",
+      "scripts": { "pre": "db.vars.set('limit', 2)", "post": "db.vars.set('best', db.result.column('ad_hash')[0])" } }
+  ],
+  "chain": {
+    "id": "ch_named", "collectionId": "col1", "name": "Named query with scripts", "vars": [], "updatedAt": 0,
+    "steps": [
+      { "id": "s1", "name": "top", "kind": "query", "queryId": "q1" },
+      { "id": "s2", "name": "check", "kind": "assert", "condition": "best == \"a1\" && count(\"top\") == 2" }
+    ]
+  }
+}

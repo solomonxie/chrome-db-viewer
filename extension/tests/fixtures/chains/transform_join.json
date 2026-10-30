@@ -1,0 +1,9 @@
+{
+  "id": "ch_join", "collectionId": "col1", "name": "Join across connections", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "sales", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "ads", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads" },
+    { "id": "s3", "name": "report", "kind": "transform-sql", "sql": "SELECT a.ad_name, sum(s.revenue) AS revenue, sum(s.spend) AS spend\nFROM {{ ref('sales') }} s JOIN {{ ref('ads') }} a USING (ad_hash)\nGROUP BY a.ad_name ORDER BY revenue DESC NULLS LAST" },
+    { "id": "s4", "name": "has_rows", "kind": "assert", "condition": "count(\"report\") == 3 && nulls(\"report\", \"ad_name\") == 0" }
+  ]
+}

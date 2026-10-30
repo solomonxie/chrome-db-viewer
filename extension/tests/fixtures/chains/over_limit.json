@@ -1,0 +1,8 @@
+{
+  "id": "ch_cost", "collectionId": "col1", "name": "Cost guard", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "small", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "big", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM huge_events" },
+    { "id": "s3", "name": "ads", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads" }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "ch_vars", "collectionId": "col1", "name": "Top ads then lookup", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "top_ads", "kind": "query", "connectionId": "bq", "sql": "SELECT ad_hash, revenue FROM ads_daily ORDER BY revenue DESC LIMIT 3" },
+    { "id": "s2", "name": "pick", "kind": "set-vars", "assignments": {
+      "top_ad_ids": "column(\"top_ads\", \"ad_hash\")",
+      "best": "first(\"top_ads\", \"ad_hash\")",
+      "max_rev": "max(\"top_ads\", \"revenue\")",
+      "n": "count(\"top_ads\")",
+      "label": "\"top \" + n",
+      "fixed": "{\"k\": [1, 2]}"
+    } },
+    { "id": "s3", "name": "lookup", "kind": "query", "connectionId": "pg", "sql": "SELECT ad_hash, ad_name FROM ads WHERE ad_hash IN {{ top_ad_ids | sql_list }}" }
+  ]
+}

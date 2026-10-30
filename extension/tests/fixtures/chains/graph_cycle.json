@@ -1,0 +1,9 @@
+{
+  "id": "ch_cycle", "collectionId": "col1", "name": "Cycle", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s0", "name": "start", "kind": "query", "connectionId": "pg", "sql": "SELECT 1" },
+    { "id": "s1", "name": "a", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref('c') }}" },
+    { "id": "s2", "name": "b", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref('a') }}" },
+    { "id": "s3", "name": "c", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref('b') }} JOIN {{ ref('start') }} ON true" }
+  ]
+}

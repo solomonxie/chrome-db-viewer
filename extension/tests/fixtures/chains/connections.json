@@ -1,0 +1,6 @@
+[
+  { "id": "bq", "name": "Acme BigQuery", "driver": "bigquery", "env": "dev", "readOnly": false, "options": { "project": "nb", "maximumBytesBilled": "1000000" } },
+  { "id": "pg", "name": "Shop Postgres", "driver": "postgres", "env": "dev", "readOnly": false, "options": { "host": "localhost" } },
+  { "id": "pg_ro", "name": "Shop replica", "driver": "postgres", "env": "dev", "readOnly": true, "options": { "host": "replica" } },
+  { "id": "pg_prod", "name": "Shop production", "driver": "postgres", "env": "production", "readOnly": false, "options": { "host": "prod" } }
+]

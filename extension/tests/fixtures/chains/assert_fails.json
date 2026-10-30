@@ -1,0 +1,8 @@
+{
+  "id": "ch_assert", "collectionId": "col1", "name": "Assert stops the chain", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "sales", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "no_null_revenue", "kind": "assert", "condition": "nulls(\"sales\", \"revenue\") == 0" },
+    { "id": "s3", "name": "after", "kind": "transform-sql", "sql": "SELECT count(*) AS n FROM {{ ref('sales') }}", "dependsOn": ["no_null_revenue"] }
+  ]
+}

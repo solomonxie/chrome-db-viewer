@@ -1,0 +1,11 @@
+{
+  "id": "ch_levels", "collectionId": "col1", "name": "Levels", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "sales", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "ads", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads" },
+    { "id": "s3", "name": "joined", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref(\"sales\") }} s JOIN {{ ref('ads') }} a USING (ad_hash)" },
+    { "id": "s4", "name": "ids", "kind": "set-vars", "assignments": { "top_ids": "column(\"joined\", \"ad_hash\")" } },
+    { "id": "s5", "name": "lookup", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads WHERE ad_hash IN {{ top_ids | sql_list }}" },
+    { "id": "s6", "name": "check", "kind": "assert", "condition": "count(\"lookup\") > 0", "dependsOn": ["sales"] }
+  ]
+}

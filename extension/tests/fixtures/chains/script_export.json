@@ -1,0 +1,8 @@
+{
+  "id": "ch_script", "collectionId": "col1", "name": "Script and export", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "ads", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM ads" },
+    { "id": "s2", "name": "shaped", "kind": "transform-script", "script": "return { rows: inputs.ads.rows.map(r => ({ id: r.ad_hash })), vars: { n: inputs.ads.rowCount } }" },
+    { "id": "s3", "name": "out", "kind": "export", "format": "csv", "sql": "SELECT * FROM {{ ref('shaped') }} ORDER BY id" }
+  ]
+}

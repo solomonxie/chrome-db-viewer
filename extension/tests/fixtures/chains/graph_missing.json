@@ -1,0 +1,7 @@
+{
+  "id": "ch_missing", "collectionId": "col1", "name": "Missing", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "sales", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM ads_daily" },
+    { "id": "s2", "name": "report", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref('sales') }} JOIN {{ ref('salse_typo') }} USING (x)" }
+  ]
+}

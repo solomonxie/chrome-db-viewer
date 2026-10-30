@@ -1,0 +1,7 @@
+{
+  "id": "ch_slow", "collectionId": "col1", "name": "Abort", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "slow", "kind": "query", "connectionId": "pg", "sql": "SELECT * FROM slow_table" },
+    { "id": "s2", "name": "after", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref('slow') }}" }
+  ]
+}

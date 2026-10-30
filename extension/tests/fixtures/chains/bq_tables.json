@@ -1,0 +1,22 @@
+{
+  "ads_daily": {
+    "bytes": 400000,
+    "columns": [
+      { "name": "ad_hash", "type": "STRING", "nullable": false },
+      { "name": "localdate", "type": "DATE", "nullable": false },
+      { "name": "revenue", "type": "FLOAT64", "nullable": true },
+      { "name": "spend", "type": "FLOAT64", "nullable": true }
+    ],
+    "rows": [
+      ["a1", "2026-10-27", 120.5, 40],
+      ["a2", "2026-10-27", 80, 50],
+      ["a3", "2026-10-28", 300, 60],
+      ["a4", "2026-10-28", null, 10]
+    ]
+  },
+  "huge_events": {
+    "bytes": 5000000000,
+    "columns": [{ "name": "n", "type": "INT64", "nullable": false }],
+    "rows": [["1"]]
+  }
+}

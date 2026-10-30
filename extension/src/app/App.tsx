@@ -7,6 +7,7 @@ import { ConnectionTab } from "./conn/ConnectionTab";
 import { FileSheet } from "./file/FileSheet";
 import { Settings } from "./settings/Settings";
 import { DownloadPrompt } from "./settings/DownloadPrompt";
+import { ChainView } from "./chains/ChainView";
 
 function useRoute(): Route {
   const read = () => parseRoute(location.hash, location.search);
@@ -49,6 +50,9 @@ export function App() {
       break;
     case "download-prompt":
       page = <DownloadPrompt downloadId={route.downloadId} />;
+      break;
+    case "chain":
+      page = <ChainView key={route.chainId} chainId={route.chainId} />;
       break;
   }
   return <ToastProvider>{page}</ToastProvider>;

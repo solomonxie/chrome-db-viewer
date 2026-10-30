@@ -1,0 +1,8 @@
+{
+  "id": "ch_cte", "collectionId": "col1", "name": "CTE inlining", "vars": [{ "name": "start_date", "value": "2026-10-27" }], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "daily", "kind": "query", "connectionId": "bq", "sql": "SELECT ad_hash, revenue, spend FROM ads_daily WHERE localdate >= {{ start_date | sql }}" },
+    { "id": "s2", "name": "roas", "kind": "query", "connectionId": "bq", "sql": "SELECT ad_hash, revenue / spend AS roas FROM {{ ref('daily') }}" },
+    { "id": "s3", "name": "top", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM {{ ref('roas') }} ORDER BY roas DESC LIMIT 2" }
+  ]
+}

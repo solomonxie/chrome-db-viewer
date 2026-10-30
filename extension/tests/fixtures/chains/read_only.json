@@ -1,0 +1,6 @@
+{
+  "id": "ch_ro", "collectionId": "col1", "name": "Write on replica", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "wipe", "kind": "query", "connectionId": "pg_ro", "sql": "DELETE FROM ads WHERE campaign = 'Archive'" }
+  ]
+}
