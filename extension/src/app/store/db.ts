@@ -15,6 +15,9 @@ export interface SavedConnection extends ConnectionConfig {
   lastUsedAt?: number;
   /** Starred tables/views, shown at the top of the Items tree. */
   favorites?: FavoriteObject[];
+  /** Set by a backup restore when the connection used a picked file (FileSystemFileHandle),
+   *  which can't be backed up: the file has to be chosen again (Edit → Choose…). */
+  needsRepick?: boolean;
 }
 
 export interface FavoriteObject {
@@ -54,6 +57,8 @@ export interface RecentFile {
   src?: string;
   size?: number;
   openedAt: number;
+  /** Restored from a backup without its handle; open the file again to use it. */
+  needsRepick?: boolean;
 }
 
 /** A picked file kept for a connection (DuckDB/SQLite file, BigQuery key), by id. */
@@ -135,12 +140,60 @@ export async function get<S extends StoreName>(name: S, id: string): Promise<Row
   return wrap((await tx(name, "readonly")).get(id)) as Promise<Row<S> | undefined>;
 }
 
+// ---- change events: the automatic backup (store/autoBackup.ts) listens to these -------------
+
+export type StoreChangeListener = (name: StoreName) => void;
+const changeListeners = new Set<StoreChangeListener>();
+
+/** Called after every successful put/del/putMany/clear. Returns an unsubscribe function. */
+export function onStoreChange(fn: StoreChangeListener): () => void {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+
+function emitChange(name: StoreName): void {
+  for (const fn of changeListeners) {
+    try {
+      fn(name);
+    } catch {
+      /* a listener must never break a write */
+    }
+  }
+}
+
 export async function put<S extends StoreName>(name: S, row: Row<S>): Promise<void> {
   await wrap((await tx(name, "readwrite")).put(row));
+  emitChange(name);
 }
 
 export async function del(name: StoreName, id: string): Promise<void> {
   await wrap((await tx(name, "readwrite")).delete(id));
+  emitChange(name);
+}
+
+/** Writes many rows in one transaction (backup import). */
+export async function putMany<S extends StoreName>(name: S, rows: Row<S>[]): Promise<void> {
+  if (rows.length === 0) return;
+  const db = await open();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(name, "readwrite");
+    const store = t.objectStore(name);
+    for (const r of rows) store.put(r);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+  emitChange(name);
+}
+
+/** Removes every row of a store (backup import in replace mode). */
+export async function clear(name: StoreName): Promise<void> {
+  await wrap((await tx(name, "readwrite")).clear());
+  emitChange(name);
+}
+
+export async function count(name: StoreName): Promise<number> {
+  return wrap((await tx(name, "readonly")).count());
 }
 
 export async function historyFor(connectionId: string, limit = 500): Promise<HistoryEntry[]> {

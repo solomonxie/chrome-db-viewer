@@ -1,0 +1,17 @@
+{
+  "_comment": "This profile's rows before backup-v1.json is merged in.",
+  "stores": {
+    "connections": [
+      { "id": "c_pg", "name": "shop prod", "driver": "postgres", "env": "production", "readOnly": true,
+        "options": { "secretMode": "keychain", "host": "db.shop.internal", "port": 5432 }, "secretRef": "c_pg", "createdAt": 1761000000000, "lastUsedAt": 1761600000000 }
+    ],
+    "history": [ { "id": "h1", "connectionId": "c_pg", "sql": "select 1", "at": 1761600000000 } ],
+    "collections": [
+      { "id": "col_1", "name": "Reports", "createdAt": 1761000000000, "updatedAt": 1761400000000, "vars": [], "environments": [] }
+    ],
+    "namedQueries": [
+      { "id": "nq_1", "collectionId": "col_1", "name": "revenue", "sql": "select 'local'", "updatedAt": 1761400000000, "vars": [] }
+    ]
+  },
+  "chromeStorageLocal": { "theme": "light" }
+}

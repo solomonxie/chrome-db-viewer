@@ -5,7 +5,7 @@
 //   - main thread:   reads frames from stdin, routes requests, handles `hello` and `cancel`
 //   - "main" worker: connect / execute / apply on the primary connection, one job at a time
 //   - "meta" worker: listObjects / describe on a second, read-only connection
-//   - "svc" worker:  Keychain calls, so a slow Keychain prompt doesn't block either connection
+//   - "svc" worker:  Keychain calls and backup files, so they don't block either connection
 //   - writer:        the only code that touches stdout
 // EOF on stdin → cancel running work, close connections, exit 0.
 
@@ -17,13 +17,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
+#include <filesystem>
 #include <future>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 
+#include "backup.hpp"
 #include "drivers/driver.hpp"
 #include "framing.hpp"
 #include "log.hpp"
@@ -40,6 +43,8 @@ namespace {
 
 constexpr int kProtocolVersion = 1;
 constexpr std::size_t kMaxErrorMessage = 16 * 1024;
+/** Raw bytes per backup.read chunk. JSON-escaping can roughly double it; still under 1 MB. */
+constexpr std::size_t kBackupChunkBytes = 300 * 1024;
 
 /** Serializes every outbound message onto the private copy of stdout. */
 class Writer {
@@ -151,7 +156,7 @@ class Router {
 
     if (op == "hello") {
       out_.send(json{{"id", id}, {"type", "hello"}, {"runner", DBUI_RUNNER_VERSION}, {"protocol", kProtocolVersion},
-                     {"drivers", {"postgres", "redis"}}});
+                     {"drivers", {"postgres", "redis"}}, {"features", {"backup"}}});
     } else if (op == "cancel") {
       long long target = req.value("target", -1LL);
       bool found = main_.cancel(target) || meta_.cancel(target);
@@ -211,6 +216,8 @@ class Router {
           }
         });
       });
+    } else if (op == "backup.write" || op == "backup.read") {
+      svc_.submit(id, [this, id, op, req](CancelToken&) { guarded(id, [&] { handleBackup(id, op, req); }); });
     } else {
       out_.send(errorMsg(id, "UNKNOWN_OP", "Unknown op: " + op));
     }
@@ -228,6 +235,28 @@ class Router {
       log::error("request " + std::to_string(id) + " crashed: " + e.what());
       out_.send(errorMsg(id, "INTERNAL", e.what()));
     }
+  }
+
+  /** backup.write {json} → ok {mtime, size}; backup.read → chunk… then backup {exists, mtime, size, chunks}. */
+  void handleBackup(long long id, const std::string& op, const json& req) {
+    const char* dirEnv = std::getenv("DBUI_BACKUP_DIR");  // tests only
+    std::filesystem::path dir = dirEnv && *dirEnv ? std::filesystem::path(dirEnv) : backup::defaultDir();
+    if (op == "backup.write") {
+      if (!req.contains("json") || !req["json"].is_string()) throw DriverError("BAD_REQUEST", "backup.write needs a json string");
+      backup::Info info = backup::write(dir, req["json"].get_ref<const std::string&>());
+      out_.send(json{{"id", id}, {"type", "ok"}, {"mtime", info.mtimeMs}, {"size", info.size}});
+      return;
+    }
+    backup::Info info;
+    auto data = backup::read(dir, &info);
+    std::size_t n = 0;
+    if (data) {
+      for (auto piece : backup::chunkUtf8(*data, kBackupChunkBytes)) {
+        out_.send(json{{"id", id}, {"type", "chunk"}, {"seq", n++}, {"data", std::string(piece)}});
+      }
+    }
+    out_.send(json{{"id", id}, {"type", "backup"}, {"exists", data.has_value()}, {"mtime", data ? json(info.mtimeMs) : json(nullptr)},
+                   {"size", info.size}, {"chunks", n}});
   }
 
   static Driver* requireDriver(Session& s) {

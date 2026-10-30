@@ -1,0 +1,61 @@
+{
+  "_comment": "Rows as they sit in IndexedDB and chrome.storage.local for one profile. 'handle' stands in for a FileSystemFileHandle (not JSON-serialisable in real life). secret:* keys are SecretStore entries and must never reach a backup.",
+  "stores": {
+    "connections": [
+      {
+        "id": "c_pg", "name": "shop prod", "driver": "postgres", "env": "production", "readOnly": true,
+        "options": { "secretMode": "keychain", "host": "db.shop.internal", "port": 5432, "user": "app", "database": "shop", "password": "hunter2",
+                     "ssh": { "host": "bastion", "user": "deploy", "keySecretRef": "c_pg_sshKey", "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----" } },
+        "secretRef": "c_pg", "createdAt": 1761000000000, "lastUsedAt": 1761600000000
+      },
+      {
+        "id": "c_bq", "name": "warehouse", "driver": "bigquery", "env": "dev", "readOnly": false,
+        "options": { "secretMode": "browser", "projectId": "acme", "token": "ya29.secret-token", "apiKey": "AIza-secret",
+                     "auth": { "method": "service-account", "options": { "keyFileHandleId": "h_key", "accessToken": "ya29.nested" } } },
+        "createdAt": 1761000000000
+      },
+      {
+        "id": "c_duck", "name": "local duck", "driver": "duckdb", "env": "local", "readOnly": false,
+        "options": { "secretMode": "session", "fileHandleId": "h_duck", "fileName": "analytics.duckdb" },
+        "createdAt": 1761000000000
+      }
+    ],
+    "history": [
+      { "id": "h1", "connectionId": "c_pg", "sql": "select 1", "at": 1761600000000, "source": "editor" },
+      { "id": "h2", "connectionId": "c_pg", "sql": "select * from orders", "at": 1761600100000, "source": "browse", "rows": 20 }
+    ],
+    "queries": [],
+    "recentFiles": [
+      { "id": "f_local", "name": "orders.csv", "handle": { "kind": "file", "name": "orders.csv" }, "size": 2048, "openedAt": 1761500000000 },
+      { "id": "f_url", "name": "events.parquet", "src": "https://data.example.org/events.parquet", "openedAt": 1761510000000 }
+    ],
+    "groups": [ { "id": "g1", "name": "Prod", "order": 0 } ],
+    "handles": [
+      { "id": "h_duck", "name": "analytics.duckdb", "handle": { "kind": "file", "name": "analytics.duckdb" } },
+      { "id": "f_local", "name": "orders.csv", "handle": { "kind": "file", "name": "orders.csv" } }
+    ],
+    "collections": [
+      {
+        "id": "col_1", "name": "Reports", "createdAt": 1761000000000, "updatedAt": 1761400000000,
+        "vars": [ { "name": "region", "value": "eu" }, { "name": "apiToken", "secret": true, "value": "tok-secret" } ],
+        "environments": [ { "id": "env_prod", "name": "prod", "values": { "region": "us", "apiToken": "tok-prod-secret" } } ]
+      }
+    ],
+    "folders": [ { "id": "fo_1", "collectionId": "col_1", "name": "Daily" } ],
+    "namedQueries": [
+      { "id": "nq_1", "collectionId": "col_1", "folderId": "fo_1", "name": "revenue", "sql": "select {{ region }}", "updatedAt": 1761400000000,
+        "vars": [ { "name": "apiToken", "value": "tok-in-query" }, { "name": "limit", "value": 10 } ] }
+    ],
+    "chains": [
+      { "id": "ch_1", "collectionId": "col_1", "name": "nightly", "updatedAt": 1761400000000, "steps": [ { "id": "s1", "name": "a", "kind": "query", "queryId": "nq_1" } ],
+        "vars": [ { "name": "webhookSecret", "secret": true, "value": "whsec" }, { "name": "day", "value": "today" } ] }
+    ]
+  },
+  "chromeStorageLocal": {
+    "previewSettings": { "enabled": true, "extensions": ["csv", "parquet"], "excludedDomains": ["example.com"] },
+    "theme": "light",
+    "secret:c_pg": "hunter2",
+    "secret:c_bq_key": "{\"private_key\": \"-----BEGIN PRIVATE KEY-----\"}",
+    "backupState": { "linked": true }
+  }
+}

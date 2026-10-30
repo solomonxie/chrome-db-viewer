@@ -44,6 +44,7 @@ endif()
 
 # Everything except main.cpp goes into a library so the tests can link it.
 add_library(dbui_core STATIC
+  src/backup.cpp
   src/framing.cpp
   src/log.cpp
   src/pager.cpp
@@ -67,6 +68,7 @@ if(DBUI_BUILD_TESTS)
   find_package(Catch2 3 REQUIRED)
   enable_testing()
   add_executable(dbui-runner-tests
+    tests/test_backup.cpp
     tests/test_framing.cpp
     tests/test_pager.cpp
     tests/test_readonly.cpp

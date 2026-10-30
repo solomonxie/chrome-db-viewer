@@ -68,7 +68,7 @@ interface Listener {
   onClose(err: DriverError): void;
 }
 
-const FINAL_TYPES = new Set<RunnerMessage["type"]>(["hello", "ok", "done", "objects", "schema", "secret", "error"]);
+const FINAL_TYPES = new Set<RunnerMessage["type"]>(["hello", "ok", "done", "objects", "schema", "secret", "backup", "error"]);
 
 /** Maps chrome.runtime.lastError on disconnect to a DriverError the UI can act on. */
 export function disconnectError(message: string | undefined): DriverError {

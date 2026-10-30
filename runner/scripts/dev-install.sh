@@ -1,7 +1,9 @@
 #!/bin/bash
 # Local development install of dbui-runner, without the .pkg.
 #
-#   runner/scripts/dev-install.sh <unpacked-extension-id> [browser-dir]
+#   runner/scripts/dev-install.sh <extension-id> [browser-dir]
+#
+# The dev extension ID is pinned by the manifest key: dalbkdjjdgbjhoalobeikhpchkoddnpb.
 #
 # Builds runner/build/dbui-runner and writes com.dbui.runner.json pointing straight at it
 # into the browser's NativeMessagingHosts folder. browser-dir is relative to

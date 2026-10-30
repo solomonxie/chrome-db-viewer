@@ -7,6 +7,8 @@ import type { Cell, Column } from "./types";
 
 export const RUNNER_HOST = "com.dbui.runner";
 export const PROTOCOL_VERSION = 1;
+/** backup.write / backup.read refuse anything larger (DESIGN.md §3.16). */
+export const BACKUP_MAX_BYTES = 50 * 1024 * 1024;
 
 export type RunnerRequest =
   | { id: number; op: "hello"; client: string }
@@ -19,7 +21,11 @@ export type RunnerRequest =
   | { id: number; op: "apply"; statements: { sql: string; params?: Cell[] }[] }
   | { id: number; op: "secret.set"; ref: string; value: string }
   | { id: number; op: "secret.get"; ref: string }
-  | { id: number; op: "secret.delete"; ref: string };
+  | { id: number; op: "secret.delete"; ref: string }
+  // Additive in protocol 1: runners without them answer UNKNOWN_OP, which the extension treats
+  // as "no automatic backup". `json` is a BackupFile (src/app/store/backup.ts) with no secrets.
+  | { id: number; op: "backup.write"; json: string }
+  | { id: number; op: "backup.read" };
 
 export interface RunnerConnectConfig {
   driver: "postgres" | "redis" | "duckdb";
@@ -40,7 +46,7 @@ export interface RunnerConnectConfig {
 }
 
 export type RunnerMessage =
-  | { id: number; type: "hello"; runner: string; protocol: number; drivers: string[] }
+  | { id: number; type: "hello"; runner: string; protocol: number; drivers: string[]; features?: string[] }
   | { id: number; type: "ok"; [k: string]: unknown }
   | { id: number; type: "columns"; cols: Column[] }
   | { id: number; type: "page"; seq: number; rows: Cell[][] }
@@ -48,4 +54,7 @@ export type RunnerMessage =
   | { id: number; type: "objects"; nodes: unknown[] }
   | { id: number; type: "schema"; schema: unknown }
   | { id: number; type: "secret"; value: string | null }
+  /** backup.read: the file in UTF-8-safe pieces (each message < 1 MB), then one "backup". */
+  | { id: number; type: "chunk"; seq: number; data: string }
+  | { id: number; type: "backup"; exists: boolean; mtime: number | null; size: number; chunks: number }
   | { id: number; type: "error"; code?: string; message: string };
