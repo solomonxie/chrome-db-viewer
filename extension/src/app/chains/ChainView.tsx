@@ -1,9 +1,12 @@
-// Chain editor and runner (DESIGN.md §3.15), at #chain/<id>. A notebook-like list of steps,
+// Workflow editor and runner (DESIGN.md §3.15), at #workflow/<id> (#chain/<id> still works).
+// The code calls workflows "chains"; every word the user sees says "workflow". A notebook-like list of steps,
 // each with its own editor, status chip, rows, time and bytes. Clicking a step shows its
 // rendered SQL, result preview, tests and log underneath.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Chain, ChainStep, ChainStepKind, NamedQuery, VarDef } from "../../collections/model";
+import type { Chain, ChainStep, ChainStepKind, Collection, NamedQuery, VarDef } from "../../collections/model";
+import { listCollections, loadBundle, onCollectionsChanged } from "../../collections/store";
+import { CollectionSettings } from "../collections/CollectionSettings";
 import { buildGraph, ChainGraphError, type ChainGraph } from "../../chains/graph";
 import { cachedResult, clearCache, estimateChain, runChain, type ChainEstimate, type ChainEvent, type StepEvent } from "../../chains/runner";
 import { appChainDeps, chainLibrary } from "../../chains/appDeps";
@@ -18,6 +21,7 @@ import { SqlEditor } from "../components/SqlEditor";
 import { Icon } from "../components/Icon";
 import { Modal, TypedConfirm, useToast } from "../components/ui";
 import { kindLabel, loadChain, newStep, saveChain, STEP_KINDS } from "./chainStore";
+import { splitStatementsRaw } from "../../collections/split";
 
 type StepState = Partial<StepEvent> & { status?: StepEvent["status"] };
 
@@ -43,6 +47,9 @@ export function ChainView({ chainId }: { chainId: string }) {
   const [estimating, setEstimating] = useState(false);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const [showVars, setShowVars] = useState(false);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [colVersion, setColVersion] = useState(0);
+  const [showCollection, setShowCollection] = useState(false);
   const ac = useRef<AbortController | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -66,6 +73,25 @@ export function ChainView({ chainId }: { chainId: string }) {
       ac.current?.abort();
     };
   }, [chainId]);
+
+  // The home collection: shown as a tag in the header, and changeable.
+  useEffect(() => onCollectionsChanged(() => setColVersion((v) => v + 1)), []);
+  useEffect(() => {
+    listCollections().then(setCollections, () => setCollections([]));
+  }, [colVersion]);
+  const homeId = chain?.collectionId;
+  useEffect(() => {
+    if (!homeId) return;
+    let cancelled = false;
+    void Promise.all([chainLibrary(homeId), loadBundle(homeId).then((b) => b?.queries ?? [], () => [])]).then(([l, qs]) => {
+      if (cancelled) return;
+      setLib(l);
+      setQueries(qs);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [homeId, colVersion]);
 
   // Show cached results from earlier runs this session.
   useEffect(() => {
@@ -184,6 +210,7 @@ export function ChainView({ chainId }: { chainId: string }) {
         if (n.done) {
           const s = n.value;
           setRunVars(s.vars);
+          if (opts.mode === "all") update((c) => ({ ...c, lastRun: { status: s.status, at: Date.now() } }));
           if (s.status === "blocked" && s.estimate) setEstimate({ est: s.estimate, blocked: true });
           if (s.status !== "done") setRunError(s.error ?? s.status);
           break;
@@ -226,12 +253,12 @@ export function ChainView({ chainId }: { chainId: string }) {
     void doRun({ mode: "all" });
   };
 
-  if (chain === undefined) return <div className="empty">Loading chain…</div>;
+  if (chain === undefined) return <div className="empty">Loading workflow…</div>;
   if (chain === null) {
     return (
       <div className="chain-page">
         <div className="empty">
-          This chain doesn't exist any more.{" "}
+          This workflow doesn't exist any more.{" "}
           <button className="btn" onClick={() => navigate({ name: "home" })}>
             Home
           </button>
@@ -240,6 +267,7 @@ export function ChainView({ chainId }: { chainId: string }) {
     );
   }
 
+  const home = collections.find((c) => c.id === chain.collectionId);
   const sel = chain.steps.find((s) => s.name === selected);
   const selState = sel ? states[sel.name] : undefined;
   const total = Object.values(states).reduce((a, s) => a + (s.bytesBilled ?? 0), 0);
@@ -250,7 +278,40 @@ export function ChainView({ chainId }: { chainId: string }) {
         <button className="btn icon ghost" title="Home" aria-label="Home" onClick={() => navigate({ name: "home" })}>
           <Icon name="home" />
         </button>
-        <input className="input chain-name" value={chain.name} aria-label="Chain name" onChange={(e) => update((c) => ({ ...c, name: e.target.value }))} />
+        <span className="wf-label">Workflow</span>
+        <input className="input chain-name" value={chain.name} aria-label="Workflow name" onChange={(e) => update((c) => ({ ...c, name: e.target.value }))} />
+        <span className="wf-home">
+          {home ? (
+            <button className="wf-tag home" title="Open this collection's variables and environments" onClick={() => setShowCollection(true)}>
+              {home.name}
+            </button>
+          ) : (
+            <span className="wf-tag missing" title="The home collection was deleted; pick another">
+              No collection
+            </span>
+          )}
+          <select
+            className="input wf-home-pick"
+            aria-label="Change collection"
+            title="Change the collection whose variables and named queries this workflow uses"
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id || id === chain.collectionId) return;
+              update((c) => ({ ...c, collectionId: id }));
+              toast(`Workflow now uses "${collections.find((c) => c.id === id)?.name ?? "collection"}"`);
+            }}
+          >
+            <option value="">Change…</option>
+            {collections
+              .filter((c) => c.id !== chain.collectionId)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+          </select>
+        </span>
         <span className="spacer" />
         {running ? (
           <button className="btn warn" onClick={() => ac.current?.abort()}>
@@ -332,6 +393,7 @@ export function ChainView({ chainId }: { chainId: string }) {
           }}
         />
       )}
+      {showCollection && home && <CollectionSettings collection={home} onClose={() => setShowCollection(false)} />}
       {confirm && (
         <TypedConfirm
           title="Destructive statement on production"
@@ -504,7 +566,12 @@ function StepEditor({ step, queries, lib, conns, onChange }: { step: ChainStep; 
             </label>
           </div>
           {q ? (
-            <pre className="cs-sql-ro mono">{q.sql}</pre>
+            <>
+              <pre className="cs-sql-ro mono">{q.sql}</pre>
+              {splitStatementsRaw(q.sql).length > 1 && (
+                <small className="muted">This query has {splitStatementsRaw(q.sql).length} statements: the earlier ones run first as setup, and the last one's result is this step's output.</small>
+              )}
+            </>
           ) : (
             <SqlEditor className="cs-sql" value={step.sql ?? ""} onChange={(sql) => onChange({ sql })} placeholder={`SELECT … FROM {{ ref("earlier_step") }} WHERE id IN {{ ids | sql_list }}`} aria-label="Step SQL" />
           )}
@@ -615,7 +682,7 @@ function VarsEditor({ vars, runVars, onChange }: { vars: VarDef[]; runVars: Reco
   const produced = runVars ? Object.entries(runVars).filter(([k]) => !vars.some((v) => v.name === k)) : [];
   return (
     <section className="chain-vars">
-      <h3>Chain variables</h3>
+      <h3>Workflow variables</h3>
       {vars.map((v, i) => (
         <VarRow key={i} def={v} onName={(name) => set(i, { name })} onValue={(value) => set(i, { value })} onRemove={() => onChange(vars.filter((_, j) => j !== i))} />
       ))}

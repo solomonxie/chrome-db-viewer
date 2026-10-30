@@ -337,6 +337,8 @@ export async function executeScript(req: SandboxRequest, opts: ExecuteOptions = 
       },
     },
     result: req.kind === "post" && req.result ? makeTable(req.result) : undefined,
+    /** Every statement's result, in order, for a query with several statements; [result] otherwise. */
+    results: req.kind === "post" ? (req.results ?? (req.result ? [req.result] : [])).map(makeTable) : undefined,
     test: (name: string, cond: unknown) => {
       const record = (passed: boolean): void => {
         tests.push({ name: String(name), passed });

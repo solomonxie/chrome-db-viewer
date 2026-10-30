@@ -291,10 +291,10 @@ export async function createCollection(name: string, partial: Partial<Collection
 }
 
 export async function deleteCollection(id: string): Promise<void> {
-  const [folders, queries, chains, row] = await Promise.all([db.byCollection("folders", id), db.byCollection("namedQueries", id), db.byCollection("chains", id), db.get("collections", id)]);
+  // Workflows whose home this was are kept; their view offers to pick another collection.
+  const [folders, queries, row] = await Promise.all([db.byCollection("folders", id), db.byCollection("namedQueries", id), db.get("collections", id)]);
   for (const q of queries) await deleteQuery(q.id);
   for (const f of folders) await db.del("folders", f.id);
-  for (const ch of chains) await db.del("chains", ch.id);
   if (row) {
     for (const v of row.vars) if (v.secret) await forgetSecret(secretRef(id, "var", v.name));
     for (const e of row.environments) for (const v of row.vars) if (v.secret) await forgetSecret(secretRef(id, `env:${e.id}`, v.name));
@@ -375,9 +375,39 @@ export async function moveFolder(id: string, parentId: string | undefined): Prom
   if (!f) return;
   if (parentId) {
     const folders = await db.byCollection("folders", f.collectionId);
-    if (folderChain(parentId, folders).some((x) => x.id === id)) throw new Error("Can't move a folder into itself");
+    if (folderChain(parentId, folders).some((x) => x.id === id)) throw new Error("Can't move a folder into itself or one of its subfolders");
   }
   await db.put("folders", { ...f, parentId });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Workflow rows (the "chains" store). A workflow keeps a home collectionId for its variables and
+// named queries; these go through the same IndexedDB-or-memory access as everything above.
+// ---------------------------------------------------------------------------------------------
+
+export async function listChainRows(): Promise<Chain[]> {
+  return db.getAll("chains");
+}
+
+export async function getChainRow(id: string): Promise<Chain | undefined> {
+  return db.get("chains", id);
+}
+
+export async function putChainRow(c: Chain): Promise<void> {
+  await db.put("chains", c);
+}
+
+export async function deleteChainRow(id: string): Promise<void> {
+  await db.del("chains", id);
+}
+
+export async function chainRowsFor(collectionId: string): Promise<Chain[]> {
+  return db.byCollection("chains", collectionId);
+}
+
+/** Every named query in every collection (for workflow rows that show which collections they use). */
+export async function listAllQueries(): Promise<NamedQuery[]> {
+  return db.getAll("namedQueries");
 }
 
 // ---------------------------------------------------------------------------------------------

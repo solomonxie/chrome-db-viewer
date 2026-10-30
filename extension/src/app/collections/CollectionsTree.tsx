@@ -1,6 +1,7 @@
 // Left pane "Collections" tab (DESIGN.md §3.14): collections → folders → named queries, with
 // new / rename / delete from a context menu, drag a query or folder onto a folder (or the
-// collection, for top level), settings, scripts, export/import, and each collection's chains.
+// collection, for top level), settings, scripts and export/import. Collections hold queries only;
+// workflows have their own tab (WorkflowsList).
 
 import { useCallback, useEffect, useState } from "react";
 import type { Collection, Folder, NamedQuery } from "../../collections/model";
@@ -24,9 +25,9 @@ import {
   uniqueName,
   type CollectionBundle,
 } from "../../collections/store";
-import { ChainsShortcut } from "../chains/ChainsShortcut";
 import { ContextMenu, Highlight, type MenuItem } from "../components/ui";
 import { Icon } from "../components/Icon";
+import { Chevron, KindIcon } from "../components/TreeRow";
 import { CollectionSettings, ScriptsModal } from "./CollectionSettings";
 
 type DragItem = { kind: "query" | "folder"; id: string; collectionId: string };
@@ -174,7 +175,7 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
     {
       label: "Delete collection…",
       onClick: async () => {
-        if (confirm(`Delete collection "${c.name}" with all its queries and chains?`)) await deleteCollection(c.id);
+        if (confirm(`Delete collection "${c.name}" with all its folders and queries?`)) await deleteCollection(c.id);
       },
     },
   ];
@@ -229,6 +230,9 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
     setMenu({ x: e.clientX, y: e.clientY, items });
   };
 
+  /** Queries in a folder and all its subfolders. */
+  const countIn = (b: CollectionBundle, folderId: string): number =>
+    b.queries.filter((x) => x.folderId === folderId).length + b.folders.filter((f) => f.parentId === folderId).reduce((n, f) => n + countIn(b, f.id), 0);
   const queryMatches = (nq: NamedQuery) => !needle || nq.name.toLowerCase().includes(needle) || nq.sql.toLowerCase().includes(needle);
   const folderHasMatch = (b: CollectionBundle, folderId: string): boolean =>
     b.queries.some((x) => x.folderId === folderId && queryMatches(x)) || b.folders.some((f) => f.parentId === folderId && folderHasMatch(b, f.id));
@@ -252,10 +256,12 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
           {...dragProps({ kind: "folder", id: f.id, collectionId: b.collection.id })}
           {...dropProps(key, b.collection.id, f.id)}
         >
-          <span className="tw">{isOpen ? "▾" : "▸"}</span>
-          <span className="faint">▱</span>
+          <Chevron open={isOpen} />
+          <KindIcon name={isOpen ? "folder-open" : "folder"} />
           <span className="nm">{f.name}</span>
           {f.scripts && (f.scripts.pre || f.scripts.post) && <span className="meta" title="Has scripts">ƒ</span>}
+          <CountBadge n={countIn(b, f.id)} />
+          <RowAddButton onClick={() => void newQuery(b.collection.id, f.id)} label={`New query in ${f.name}`} />
           <RowMenuButton onClick={(e) => showMenu(e, folderMenu(f))} label={`Actions for folder ${f.name}`} />
         </button>,
       );
@@ -274,8 +280,8 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
           role="treeitem"
           {...dragProps({ kind: "query", id: nq.id, collectionId: b.collection.id })}
         >
-          <span className="tw" />
-          <span className="faint">⌘</span>
+          <Chevron open={false} leaf />
+          <KindIcon name="named-query" />
           <span className="nm">
             <Highlight text={nq.name} needle={needle} />
           </span>
@@ -289,6 +295,7 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
   return (
     <>
       <div className="psearch">
+        <Icon name="search" className="ico psearch-ico" />
         <input placeholder="Search named queries" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search named queries" />
         <button className="btn icon ghost" title="New collection" aria-label="New collection" onClick={() => void newCollection()}>
           <Icon name="plus" />
@@ -322,10 +329,12 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
                 aria-expanded={isOpen}
                 {...dropProps(key, c.id, undefined)}
               >
-                <span className="tw">{isOpen ? "▾" : "▸"}</span>
-                <span className="faint">◫</span>
+                <Chevron open={isOpen} />
+                <KindIcon name="collections" />
                 <span className="nm">{c.name}</span>
                 {env && <span className="meta" title="Active environment">{env.name}</span>}
+                {b && <CountBadge n={b.queries.length} />}
+                <RowAddButton onClick={() => void newQuery(c.id)} label={`New query in ${c.name}`} />
                 <RowMenuButton onClick={(e) => showMenu(e, collectionMenu(c))} label={`Actions for collection ${c.name}`} />
               </button>
               {isOpen && b && (
@@ -333,15 +342,10 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
                   {renderLevel(b, undefined, 1)}
                   {b.queries.length === 0 && b.folders.length === 0 && (
                     <div className="coll-empty faint">
-                      Empty.{" "}
                       <button className="linkbtn" onClick={() => void newQuery(c.id)}>
-                        New query
+                        Add a query
                       </button>
-                    </div>
-                  )}
-                  {!needle && (
-                    <div className="coll-chains">
-                      <ChainsShortcut collectionId={c.id} />
+                      , or save one from History.
                     </div>
                   )}
                 </>
@@ -368,6 +372,33 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
   );
 }
 
+/** Number of queries under a collection or folder. */
+function CountBadge({ n }: { n: number }) {
+  return (
+    <span className="coll-count" title={`${n} quer${n === 1 ? "y" : "ies"}`} aria-label={`${n} quer${n === 1 ? "y" : "ies"}`}>
+      {n}
+    </span>
+  );
+}
+
+/** "+" on a collection or folder row: a new query right there. A span, since rows are buttons. */
+function RowAddButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <span
+      className="rowadd"
+      role="button"
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <Icon name="plus" className="ico sm" />
+    </span>
+  );
+}
+
 /** "…" on a row, a span since rows are buttons. */
 function RowMenuButton({ onClick, label }: { onClick: (e: React.MouseEvent) => void; label: string }) {
   return (
@@ -381,7 +412,7 @@ function RowMenuButton({ onClick, label }: { onClick: (e: React.MouseEvent) => v
         onClick(e);
       }}
     >
-      ⋯
+      <Icon name="more" className="ico sm" />
     </span>
   );
 }

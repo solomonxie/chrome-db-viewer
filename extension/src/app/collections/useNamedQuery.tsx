@@ -26,6 +26,13 @@ import {
 import { guessVarType } from "../../collections/params";
 import { runPostScripts, runPreScripts, type ChainResult } from "../../sandbox/client";
 import type { ConnCtx } from "../conn/model";
+import { splitStatementsRaw } from "../../collections/split";
+
+/** One statement ready to send: rendered SQL with its own bound parameters. */
+export interface PreparedStatement {
+  sql: string;
+  params: Cell[];
+}
 
 export interface ParamRow {
   /** Variable name, or the SQL parameter key ("@d", "$1", "?1"). */
@@ -66,9 +73,14 @@ export interface NamedQueryState {
   saveAsDefault: (row: ParamRow) => Promise<void>;
   saveToEnvironment: (row: ParamRow) => Promise<void>;
   setActiveEnvironment: (id: string | undefined) => Promise<void>;
-  /** Runs pre scripts, renders and binds. Null when something stopped the run (reported via toast/scripts). */
-  prepare: () => Promise<{ sql: string; params: Cell[] } | null>;
-  afterRun: (result: { columns: Column[]; rows: Cell[][] }) => Promise<void>;
+  /**
+   * Runs pre scripts, renders the template (or `text`, a selection of it), splits the rendered SQL
+   * on ';' outside strings and comments, and binds each statement's parameters. Null when
+   * something stopped the run (reported via toast/scripts).
+   */
+  prepare: (opts?: { text?: string }) => Promise<{ statements: PreparedStatement[] } | null>;
+  /** Post scripts, once for the whole query: db.result is the last result, db.results all of them. */
+  afterRun: (results: { columns: Column[]; rows: Cell[][] }[]) => Promise<void>;
   save: () => Promise<void>;
   applyEnv: (ok: boolean) => Promise<void>;
 }
@@ -225,7 +237,7 @@ export function useNamedQuery(ctx: ConnCtx, queryId: string | undefined, templat
     async setActiveEnvironment(id) {
       await saveCollection({ ...collection, activeEnvironmentId: id });
     },
-    async prepare() {
+    async prepare(opts = {}) {
       if (missing.length) {
         ctx.toast(`Fill in ${missing.join(", ")} before running.`);
         return null;
@@ -243,19 +255,36 @@ export function useNamedQuery(ctx: ConnCtx, queryId: string | undefined, templat
         vars = r.vars;
       }
       try {
-        const sql = render(template, { dialect, vars, library }, path).sql;
+        const sql = render(opts.text ?? template, { dialect, vars, library }, path).sql;
         const named = { ...sqlParamValues() };
         for (const p of sqlParams) if (p.style === "named") named[p.key] = vars[p.name];
-        return bindSqlParams(sql, dialect, named);
+        const parts = splitStatementsRaw(sql);
+        if (parts.length <= 1) return { statements: [bindSqlParams(sql.trim().replace(/;\s*$/, ""), dialect, named)] };
+        // Positional parameters ($1, ?) are numbered across the whole text, so bind it whole first
+        // and hand each statement its share; named ones bind per statement.
+        const positional = sqlParams.some((p) => p.style !== "named");
+        if (!positional) return { statements: parts.map((p) => bindSqlParams(p, dialect, named)) };
+        const whole = bindSqlParams(sql, dialect, named);
+        const wholeParts = splitStatementsRaw(whole.sql);
+        let at = 0;
+        return {
+          statements: wholeParts.map((p) => {
+            const n = (p.match(/\?|\$\d+/g) ?? []).length;
+            const params = whole.params.slice(at, at + n);
+            at += n;
+            return { sql: p, params };
+          }),
+        };
       } catch (e) {
         ctx.toast((e as Error).message);
         return null;
       }
     },
-    async afterRun(result) {
-      if (!chain.post.length) return;
-      const table: ResultTable = { columns: result.columns, rows: result.rows };
-      const r = await runPostScripts(chain.post, { ...values, ...sessionVars(collection.id) }, { ...(env?.values ?? {}) }, table);
+    async afterRun(results) {
+      if (!chain.post.length || !results.length) return;
+      const tables: ResultTable[] = results.map((r) => ({ columns: r.columns, rows: r.rows }));
+      const table = tables[tables.length - 1]!;
+      const r = await runPostScripts(chain.post, { ...values, ...sessionVars(collection.id) }, { ...(env?.values ?? {}) }, table, tables.length > 1 ? { results: tables } : {});
       setScripts((s) => ({ tests: [...(s?.tests ?? []), ...r.tests], logs: [...(s?.logs ?? []), ...r.logs], error: r.ok ? s?.error : `Post-run script failed: ${r.error}` }));
       applyResult(r);
     },

@@ -25,7 +25,7 @@ export async function chainLibrary(collectionId: string): Promise<ChainLibrary> 
 async function connect(cfg: ConnectionConfig, signal?: AbortSignal) {
   const secret = await resolveSecret(cfg);
   if (secret === null && needsSecret(cfg)) {
-    throw new Error(`"${cfg.name}" needs its password or key for this session. Open the connection once, then run the chain again.`);
+    throw new Error(`"${cfg.name}" needs its password or key for this session. Open the connection once, then run the workflow again.`);
   }
   const driver = await openDriver(cfg);
   await driver.connect(withSecret(cfg, secret), signal);
@@ -62,7 +62,7 @@ export function appChainDeps(library: ChainLibrary, extra: Partial<ChainDeps> = 
     render: (t, o) => render(t, o),
     runScript: (req) => runScript(req),
     runPreScripts: (s, v, e) => runPreScripts(s, v, e),
-    runPostScripts: (s, v, e, r) => runPostScripts(s, v, e, r),
+    runPostScripts: (s, v, e, r, all) => runPostScripts(s, v, e, r, all ? { results: all } : {}),
     loadConnection,
     connect,
     library,

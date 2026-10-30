@@ -33,7 +33,7 @@ test("a cycle is refused, naming the loop", () => {
 });
 
 test("a ref to a step that doesn't exist names both steps", () => {
-  expect(() => buildGraph(loadChain("graph_missing.json"))).toThrow(`Step "report" refers to "salse_typo", which is not a step in this chain`);
+  expect(() => buildGraph(loadChain("graph_missing.json"))).toThrow(`Step "report" refers to "salse_typo", which is not a step in this workflow`);
 });
 
 test("duplicate step names are refused", () => {

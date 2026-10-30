@@ -1,0 +1,33 @@
+{
+  "collections": [
+    { "id": "col_ads", "name": "Ad performance", "vars": [], "environments": [], "createdAt": 1, "updatedAt": 1 },
+    { "id": "col_fin", "name": "Finance", "vars": [], "environments": [], "createdAt": 1, "updatedAt": 1 }
+  ],
+  "queries": [
+    { "id": "nq_top", "collectionId": "col_ads", "name": "top_ads", "sql": "SELECT ad_hash FROM ads ORDER BY roas DESC LIMIT 50", "vars": [], "updatedAt": 1 },
+    { "id": "nq_rev", "collectionId": "col_fin", "name": "revenue", "sql": "SELECT day, sum(amount) AS revenue FROM orders GROUP BY day", "vars": [], "updatedAt": 1 }
+  ],
+  "chains": [
+    {
+      "id": "ch_daily",
+      "collectionId": "col_ads",
+      "name": "Daily ad report",
+      "steps": [
+        { "id": "st_1", "name": "top", "kind": "query", "queryId": "nq_top" },
+        { "id": "st_2", "name": "rev", "kind": "query", "queryId": "nq_rev" },
+        { "id": "st_3", "name": "check", "kind": "assert", "condition": "count(\"top\") > 0" }
+      ],
+      "vars": [],
+      "updatedAt": 3,
+      "lastRun": { "status": "failed", "at": 2 }
+    },
+    {
+      "id": "ch_close",
+      "collectionId": "col_fin",
+      "name": "Month close",
+      "steps": [{ "id": "st_9", "name": "rev", "kind": "query", "queryId": "nq_rev" }],
+      "vars": [],
+      "updatedAt": 2
+    }
+  ]
+}

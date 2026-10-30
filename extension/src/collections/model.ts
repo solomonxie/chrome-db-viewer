@@ -97,6 +97,8 @@ export interface Chain {
   steps: ChainStep[];
   vars: VarDef[];
   updatedAt: number;
+  /** Outcome of the last run from the workflow view, for the Workflows list. */
+  lastRun?: { status: "done" | "failed" | "cancelled" | "blocked"; at: number };
 }
 
 /** A result table passed between scripts and chain steps. */
@@ -142,6 +144,8 @@ export type SandboxRequest =
       vars: Record<string, unknown>;
       env: Record<string, unknown>;
       result?: ResultTable;
+      /** Post scripts of a query with several statements: every statement's result, in order (result is the last). */
+      results?: ResultTable[];
       timeoutMs?: number;
     }
   | {

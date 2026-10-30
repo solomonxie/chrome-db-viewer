@@ -1,0 +1,19 @@
+{
+  "collection": {
+    "id": "col1", "name": "Ad performance", "defaultConnectionId": "bq",
+    "vars": [], "environments": [], "createdAt": 0, "updatedAt": 0
+  },
+  "folders": [],
+  "queries": [
+    { "id": "q_multi", "collectionId": "col1", "name": "setup_then_top", "vars": [], "updatedAt": 0,
+      "sql": "SELECT ad_hash FROM ads_daily LIMIT 1;\nSELECT ad_hash, revenue FROM ads_daily ORDER BY revenue DESC LIMIT 2",
+      "scripts": { "post": "db.vars.set('n', db.results.length)" } }
+  ],
+  "chain": {
+    "id": "ch_multi", "collectionId": "col1", "name": "Multi-statement step", "vars": [], "updatedAt": 0,
+    "steps": [
+      { "id": "s1", "name": "top", "kind": "query", "queryId": "q_multi" },
+      { "id": "s2", "name": "check", "kind": "assert", "condition": "count(\"top\") == 2" }
+    ]
+  }
+}

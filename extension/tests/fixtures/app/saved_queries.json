@@ -1,0 +1,4 @@
+[
+  { "id": "q_a1", "connectionId": "demo", "name": "Paid orders", "sql": "SELECT * FROM orders WHERE paid", "updatedAt": 1700000000000 },
+  { "id": "q_b2", "connectionId": "demo", "name": "Customers", "sql": "SELECT * FROM customers", "updatedAt": 1700000100000 }
+]

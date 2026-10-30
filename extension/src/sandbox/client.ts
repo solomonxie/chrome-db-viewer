@@ -164,6 +164,7 @@ async function runChain(
   result: ResultTable | undefined,
   exec: Executor,
   timeoutMs?: number,
+  results?: ResultTable[],
 ): Promise<ChainResult> {
   const out: ChainResult = { ok: true, vars: { ...vars }, varChanges: {}, envChanges: {}, tests: [], logs: [] };
   let curEnv = { ...env };
@@ -171,7 +172,7 @@ async function runChain(
     const code = chain[i];
     if (!code || !code.trim()) continue;
     const id = `${kind}_${Date.now().toString(36)}_${++seq}`;
-    const res = await exec({ id, kind, code, vars: out.vars, env: curEnv, result, timeoutMs });
+    const res = await exec({ id, kind, code, vars: out.vars, env: curEnv, result, timeoutMs, ...(results ? { results } : {}) });
     for (const [k, v] of Object.entries(res.varChanges ?? {})) {
       out.varChanges[k] = v;
       if (v === null) delete out.vars[k];
@@ -208,7 +209,7 @@ export function runPostScripts(
   vars: Record<string, unknown>,
   env: Record<string, unknown>,
   result: ResultTable,
-  opts: { exec?: Executor; timeoutMs?: number } = {},
+  opts: { exec?: Executor; timeoutMs?: number; results?: ResultTable[] } = {},
 ): Promise<ChainResult> {
-  return runChain("post", chain, vars, env, result, opts.exec ?? runScript, opts.timeoutMs);
+  return runChain("post", chain, vars, env, result, opts.exec ?? runScript, opts.timeoutMs, opts.results);
 }

@@ -247,3 +247,20 @@ test("a named query step uses the collection's default connection, environment a
   expect(s.steps.top).toMatchObject({ logs: ["pre ran"], tests: [{ name: "collection post", passed: true }], vars: { best: "a1" } });
   expect(s.vars).toMatchObject({ best: "a1", limit: 2 });
 });
+
+test("a query step whose named query has several statements runs the earlier ones as setup and outputs the last", async () => {
+  const fx = JSON.parse(readFixture("multi_statement_query.json"));
+  const library = buildLibrary(fx.collection, fx.folders, fx.queries);
+  const deps = makeDeps();
+  const seen: number[] = [];
+  deps.runPostScripts = async (_scripts, vars, _env, _result, results) => {
+    seen.push(results?.length ?? 1);
+    return { ok: true, vars, varChanges: {}, envChanges: {}, tests: [], logs: [] };
+  };
+  clearCache(fx.chain.id);
+  const s = await runChainToEnd(fx.chain, {}, { ...deps, library });
+  expect(s.status).toBe("done");
+  expect(deps.log.executed.map((e) => e.sql)).toEqual(["SELECT ad_hash FROM ads_daily LIMIT 1", "SELECT ad_hash, revenue FROM ads_daily ORDER BY revenue DESC LIMIT 2"]);
+  expect(s.steps.top).toMatchObject({ status: "done", rowCount: 2 });
+  expect(seen).toEqual([2]);
+});

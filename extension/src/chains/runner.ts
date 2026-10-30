@@ -21,6 +21,7 @@ import { ancestors, buildGraph, descendants, findRefs, type ChainGraph } from ".
 import { EMPTY_LIBRARY, type ChainLibrary } from "./library";
 import { createLocalDb, stepTable, type ExportFormat, type LocalDb } from "./local";
 import { sqlIdent } from "./miniRender";
+import { splitStatementsRaw } from "../collections/split";
 
 export const DEFAULT_VALUE_CAP = 10_000;
 export const DEFAULT_PREVIEW_ROWS = 200;
@@ -113,7 +114,8 @@ export interface ChainDeps {
   render(template: string, opts: RenderOptions): RenderResult;
   runScript(req: { kind: "transform"; code: string; vars: Record<string, unknown>; inputs: Record<string, ResultTable>; timeoutMs?: number }): Promise<SandboxResponse>;
   runPreScripts(scripts: string[], vars: Record<string, unknown>, env: Record<string, unknown>): Promise<ScriptChainResult>;
-  runPostScripts(scripts: string[], vars: Record<string, unknown>, env: Record<string, unknown>, result: ResultTable): Promise<ScriptChainResult>;
+  /** `results` is every statement's result when the named query has several (result is the last). */
+  runPostScripts(scripts: string[], vars: Record<string, unknown>, env: Record<string, unknown>, result: ResultTable, results?: ResultTable[]): Promise<ScriptChainResult>;
   /** Saved connection settings (no secret). */
   loadConnection(id: string): Promise<ConnectionConfig | undefined>;
   /** A connected driver for the connection; the runner calls disconnect at the end of the run. */
@@ -141,8 +143,13 @@ export function dialectOf(driver: DriverId): RenderOptions["dialect"] {
 // Shared run context
 
 interface Rendered {
-  /** Final SQL sent to the driver (CTE prefix included). */
+  /** Final SQL sent to the driver (CTE prefix included); every statement when there are several. */
   sql: string;
+  /**
+   * The statements in run order. A named query with several statements runs the earlier ones as
+   * setup; the last one (with the CTE prefix) is the step's output.
+   */
+  statements: string[];
   /** The step's own SQL, without the WITH prefix from inlined upstream steps. */
   body: string;
   /** Inlined upstream steps in dependency order: [name, body]. */
@@ -231,6 +238,8 @@ async function canInline(ctx: Ctx, down: ChainStep, up: ChainStep): Promise<bool
   const a = stepConnectionId(ctx, down);
   const b = stepConnectionId(ctx, up);
   if (!a || a !== b) return false;
+  // A step with setup statements must run them itself, so it can't become a CTE.
+  if (splitStatementsRaw(stepTemplateText(ctx, up)).length > 1) return false;
   return SQL_DRIVERS.has((await connConfig(ctx, a)).driver);
 }
 
@@ -266,7 +275,7 @@ async function renderQuery(ctx: Ctx, step: ChainStep, vars: Record<string, unkno
   const ref = (name: string): string => {
     const up = ctx.graph.steps.get(name);
     if (!up) {
-      // A query of the collection, not a chain step: inline it as a subquery.
+      // A query of the collection, not a workflow step: inline it as a subquery.
       const t = ctx.lib.templates.resolve(name);
       if (t === undefined) throw new StepError(`ref("${name}"): no step or query with that name`);
       return `(${ctx.deps.render(t, { dialect, vars, library: ctx.lib.templates, ref }).sql})`;
@@ -291,8 +300,10 @@ async function renderQuery(ctx: Ctx, step: ChainStep, vars: Record<string, unkno
     throw new StepError(`Could not render step "${step.name}": ${msg}`);
   }
   for (const v of res.usedVars) checkValueCap(v, vars[v], ctx.cap);
-  const body = res.sql.trim().replace(/;\s*$/, "");
-  return { sql: withCtes(ctes, body, dialect), body, ctes, usedVars: res.usedVars };
+  const parts = splitStatementsRaw(res.sql);
+  const body = parts.length ? parts[parts.length - 1]! : res.sql.trim().replace(/;\s*$/, "");
+  const statements = [...parts.slice(0, -1), withCtes(ctes, body, dialect)];
+  return { sql: statements.join(";\n\n"), statements, body, ctes, usedVars: res.usedVars };
 }
 
 function varDefaults(q: NamedQuery | undefined): Record<string, unknown> {
@@ -389,7 +400,13 @@ async function estimateWith(ctx: Ctx, only?: string[]): Promise<ChainEstimate> {
         est.note = "No cost estimate for this connection";
         continue;
       }
-      const e = await driver.estimate({ sql: rendered.sql }, ctx.signal);
+      // Several statements: each is dry-run on its own and the bytes add up.
+      const e = { bytes: 0, usd: undefined as number | undefined };
+      for (const sql of rendered.statements) {
+        const one = await driver.estimate({ sql }, ctx.signal);
+        e.bytes += one.bytes;
+        if (one.usd !== undefined) e.usd = (e.usd ?? 0) + one.usd;
+      }
       est.bytes = e.bytes;
       est.usd = e.usd;
       est.limit = costLimit(cfg);
@@ -709,10 +726,13 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
           return { ...out, varChanges: { ...preChanges, ...(hit.varChanges ?? {}) } };
         }
         const driver = await connDriver(ctx, connId);
-        const stmt: Statement = { sql: r.sql, pageSize: 10_000 };
+        const finalSql = r.statements[r.statements.length - 1]!;
+        const stmt: Statement = { sql: finalSql, pageSize: 10_000 };
         if (driver.capabilities().costEstimate && driver.estimate) {
           // Steps whose SQL wasn't known before the run (variables set by earlier steps) get their dry run here.
-          const est = await driver.estimate({ sql: r.sql }, ctx.signal);
+          let bytes = 0;
+          for (const sql of r.statements) bytes += (await driver.estimate({ sql }, ctx.signal)).bytes;
+          const est = { bytes };
           const limit = costLimit(cfg);
           if (est.bytes > limit) {
             if (!opts.allowOverLimit) {
@@ -721,11 +741,26 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
             stmt.options = { maximumBytesBilled: String(Math.ceil(est.bytes * 1.1)) };
           }
         }
+        // Setup statements of a multi-statement named query run first; the last one is the output.
+        let setupBytes = 0;
+        const setupTables: ResultTable[] = [];
+        for (const [i, sql] of r.statements.slice(0, -1).entries()) {
+          try {
+            const s = await collect(driver.execute({ sql, pageSize: 10_000, ...(stmt.options ? { options: stmt.options } : {}) }, ctx.signal));
+            setupBytes += s.summary.bytesProcessed ?? 0;
+            setupTables.push({ columns: s.columns, rows: s.rows });
+          } catch (e) {
+            throw new StepError(`Statement ${i + 1} of step "${step.name}" failed: ${(e as Error).message}`, { renderedSql: r.sql });
+          }
+        }
         const res = await collect(driver.execute(stmt, ctx.signal));
+        if (setupBytes && res.summary.bytesProcessed !== undefined) res.summary.bytesProcessed += setupBytes;
         const table: ResultTable = { columns: res.columns, rows: res.rows };
         let postChanges: Record<string, unknown> = {};
         if (scripts.post.length) {
-          const post = await deps.runPostScripts(scripts.post, runVars, ctx.lib.env, table);
+          const post = setupTables.length
+            ? await deps.runPostScripts(scripts.post, runVars, ctx.lib.env, table, [...setupTables, table])
+            : await deps.runPostScripts(scripts.post, runVars, ctx.lib.env, table);
           logs.push(...post.logs);
           tests.push(...post.tests);
           if (!post.ok) throw new StepError(`Post-run script failed: ${post.error ?? "error"}`, { logs, tests, renderedSql: r.sql, ...preview(table) });
@@ -864,7 +899,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
         vars,
         library: ctx.lib.templates,
         ref: (name) => {
-          if (!graph.steps.has(name)) throw new StepError(`ref("${name}") in step "${step.name}" must name a step of this chain`);
+          if (!graph.steps.has(name)) throw new StepError(`ref("${name}") in step "${step.name}" must name a step of this workflow`);
           return sqlIdent(stepTable(name), "duckdb");
         },
       });
@@ -905,7 +940,7 @@ function newCtxShared(ctx: Ctx): Ctx {
 }
 
 function safeFileName(s: string): string {
-  return s.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "") || "chain";
+  return s.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "") || "workflow";
 }
 
 export { clearCache, cachedResult } from "./cache";

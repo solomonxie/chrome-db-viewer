@@ -233,3 +233,15 @@ test("hardenGlobals also removes names inherited through the prototype chain", (
   expect(scope.fetch).toBeUndefined();
   expect(scope.WebSocket).toBeUndefined();
 });
+
+test("db.results has every statement's result in a post script; db.result is the last", async () => {
+  const first = fxTable("result.json");
+  const last = fxTable("ads.json");
+  const res = await executeScript({ id: "t", kind: "post", code: fx("post-results.js"), vars: {}, env: {}, result: last, results: [first, last] });
+  expect(res.ok).toBe(true);
+  expect(res.varChanges).toEqual({ statements: 2, first_count: 3, last_is_result: true });
+  expect(res.tests).toEqual([{ name: "setup returned rows", passed: true }]);
+  // A single-statement query sees db.results as [db.result].
+  const one = await post('db.vars.set("n", db.results.length)', first);
+  expect(one.varChanges).toEqual({ n: 1 });
+});

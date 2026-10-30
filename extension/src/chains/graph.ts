@@ -146,7 +146,7 @@ export function buildGraph(chain: Pick<Chain, "steps">, opts: GraphOptions = {})
 }
 
 function missing(from: string, name: string): ChainGraphError {
-  return new ChainGraphError(`Step "${from}" refers to "${name}", which is not a step in this chain`, "missing", [from, name]);
+  return new ChainGraphError(`Step "${from}" refers to "${name}", which is not a step in this workflow`, "missing", [from, name]);
 }
 
 /** A closed path a → b → … → a among the unsorted steps. */
