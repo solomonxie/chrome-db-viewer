@@ -85,14 +85,22 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-test("left pane tabs are Items, Collections, Workflows and History", async () => {
+test("left pane sections are Items, Collections, Workflows and History, one open at a time", async () => {
   await openConnection();
-  expect(all(".ptabs button").map((b) => b.textContent?.trim())).toEqual(["Items", "Collections", "Workflows", "History"]);
+  expect(all(".psec-head").map((b) => b.textContent?.trim())).toEqual(["Items", "Collections", "Workflows", "History"]);
+  const expanded = () => all(".psec-head").filter((b) => b.getAttribute("aria-expanded") === "true").map((b) => b.textContent?.trim());
+  expect(expanded()).toEqual(["Items"]);
+  await click(byText(".psec-head", "Collections"));
+  expect(expanded()).toEqual(["Collections"]);
+  expect(all(".psec-body").length).toBe(1);
+  await click(byText(".psec-head", "Collections"));
+  expect(expanded()).toEqual([]);
+  expect(all(".psec-body").length).toBe(0);
 });
 
 test("the Workflows tab lists workflows across collections with their collection tags", async () => {
   await openConnection();
-  await click(byText(".ptabs button", "Workflows"));
+  await click(byText(".psec-head", "Workflows"));
   await until(() => all(".wf-item").length >= 2);
   const daily = all<HTMLElement>(".wf-item").find((r) => r.textContent?.includes("Daily ad report"))!;
   expect(daily.textContent).toContain("3 steps");
@@ -108,7 +116,7 @@ test("the Workflows tab lists workflows across collections with their collection
   expect(all(".wf-item").map((r) => r.querySelector(".wf-name")!.textContent)).toEqual(["Month close"]);
 
   // Collections show only collections, folders and queries.
-  await click(byText(".ptabs button", "Collections"));
+  await click(byText(".psec-head", "Collections"));
   await until(() => !!byText(".coll-head .nm", "Ad performance"));
   expect($(".tree")!.textContent).not.toMatch(/workflow|Daily ad report/i);
   expect(visibleText()).not.toMatch(/chain/i);
@@ -121,7 +129,7 @@ test("New workflow lets you pick the collection and opens the workflow at #workf
     return null;
   });
   await openConnection();
-  await click(byText(".ptabs button", "Workflows"));
+  await click(byText(".psec-head", "Workflows"));
   await click($("button[aria-label='New workflow']"));
   await until(() => !!$(".modal select[aria-label='Collection']"));
   expect(visibleText()).not.toMatch(/chain/i);

@@ -54,7 +54,7 @@ test("create a collection and query, set a variable, and the Rendered SQL update
   await act(async () => root!.render(<App />));
   await until(() => !!$(".tree")?.textContent?.includes("orders"));
 
-  await act(async () => byText(".ptabs button", "Collections")!.click());
+  await act(async () => byText(".psec-head", "Collections")!.click());
   await act(async () => byText(".empty .btn", "New collection")!.click());
   await until(() => !!byText(".coll-head .nm", "Ad performance"));
 

@@ -1,5 +1,5 @@
 // Presentational bits shared by the left-pane trees (Items, Collections, Workflows):
-// a hover-revealed chevron, kind icons, and the segmented pane-tab control.
+// a hover-revealed chevron, kind icons, and the folding pane sections.
 
 import type { ReactNode } from "react";
 import { Icon, objectIcon, type IconName } from "./Icon";
@@ -26,17 +26,30 @@ export interface PaneTab<K extends string> {
   hint?: string;
 }
 
-/** Compact segmented control for the pane tabs; labels collapse to icons when the pane is narrow. */
-export function PaneTabs<K extends string>(props: { tabs: PaneTab<K>[]; value: K; onChange: (k: K) => void; trailing?: ReactNode }) {
+/**
+ * Left-pane sections stacked as folding headers (Items, Collections, …). One is open at a time:
+ * its header is a full-width accent bar and its body fills the space below it; the others stay
+ * folded underneath. No chevrons at this level: the bar alone marks the open one. Clicking the open one folds it.
+ */
+export function PaneSections<K extends string>(props: { sections: (PaneTab<K> & { body: ReactNode })[]; value: K | null; onChange: (k: K | null) => void }) {
   return (
-    <div className="ptabs" role="tablist">
-      {props.tabs.map((t) => (
-        <button key={t.key} role="tab" aria-selected={props.value === t.key} onClick={() => props.onChange(t.key)} title={t.hint ? `${t.label}: ${t.hint}` : t.label} aria-label={t.label}>
-          <Icon name={t.icon} className="ico" />
-          <span className="lbl">{t.label}</span>
-        </button>
-      ))}
-      {props.trailing}
+    <div className="psecs">
+      {props.sections.map((t) => {
+        const open = props.value === t.key;
+        return (
+          <section key={t.key} className={"psec" + (open ? " open" : "")} aria-label={t.label}>
+            <button
+              className="psec-head"
+              aria-expanded={open}
+              onClick={() => props.onChange(open ? null : t.key)}
+              title={t.hint ? `${t.label}: ${t.hint}` : t.label}
+            >
+              <span className="lbl">{t.label}</span>
+            </button>
+            {open && <div className="psec-body">{t.body}</div>}
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { CollectionsTree } from "../collections/CollectionsTree";
 import { WorkflowsList } from "../chains/WorkflowsList";
 import { SaveAsNamedQuery } from "../collections/SaveAsNamedQuery";
 import { ContextMenu } from "../components/ui";
-import { Chevron, KindIcon, PaneTabs } from "../components/TreeRow";
+import { Chevron, KindIcon, PaneSections } from "../components/TreeRow";
 
 const OPENABLE = new Set<ObjectType>(["table", "view", "materialized_view", "dictionary", "file", "key"]);
 const TYPE_FILTERS: { type: ObjectType; label: string }[] = [
@@ -47,7 +47,7 @@ export function LeftPane(props: {
 }) {
   const { ctx } = props;
   const { driver, nodeTypes } = ctx;
-  const [tab, setTab] = useState<PaneTabKey>("items");
+  const [tab, setTab] = useState<PaneTabKey | null>("items");
   const [q, setQ] = useState("");
   const [hidden, setHidden] = useState<Set<ObjectType>>(new Set());
   const [showTypeMenu, setShowTypeMenu] = useState(false);
@@ -203,74 +203,77 @@ export function LeftPane(props: {
     return out;
   };
 
+  const bodies: Record<PaneTabKey, React.ReactNode> = {
+    items: (
+      <>
+        <div className="psearch">
+          <Icon name="search" className="ico psearch-ico" />
+          <input placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search items" />
+          {q && (
+            <button className="btn icon ghost" onClick={() => setQ("")} title="Clear" aria-label="Clear search">
+              <Icon name="clear" />
+            </button>
+          )}
+          <button className="btn icon ghost" title="Object types" aria-pressed={hidden.size > 0} onClick={() => setShowTypeMenu(!showTypeMenu)} aria-label="Object types">
+            <Icon name="filter" />
+          </button>
+        </div>
+        {showTypeMenu && (
+          <div className="typefilter">
+            {TYPE_FILTERS.map((f) => (
+              <label key={f.type}>
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(f.type)}
+                  onChange={(e) => {
+                    const h = new Set(hidden);
+                    if (e.target.checked) h.delete(f.type);
+                    else h.add(f.type);
+                    setHidden(h);
+                  }}
+                />
+                {f.label}
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="tree" role="tree">
+          {tree.loading.has(pathKey([])) && !tree.children.has(pathKey([])) && <div className="empty">Loading…</div>}
+          {tree.errors.get(pathKey([])) && <div className="err">{tree.errors.get(pathKey([]))}</div>}
+          <FavoritesSection
+            favorites={favorites.filter((f) => !needle || f.name.toLowerCase().includes(needle))}
+            activePath={props.activePath}
+            needle={needle}
+            onOpen={props.onOpen}
+            onUnstar={star}
+          />
+          {renderLevel([], 0)}
+        </div>
+      </>
+    ),
+    collections: <CollectionsTree onOpenQuery={(q) => props.onOpenNamedQuery?.(q)} activeQueryId={props.activeNamedQueryId} toast={ctx.toast} />,
+    workflows: <WorkflowsList toast={ctx.toast} />,
+    history: (
+      <HistoryList
+        connectionId={ctx.cfg.id}
+        onOpen={props.onOpenHistory ?? props.onOpenSql}
+        version={props.historyVersion}
+        dialect={ctx.driver.dialect.name}
+        onSavedNamed={(q) => {
+          setTab("collections");
+          props.onOpenNamedQuery?.(q);
+        }}
+      />
+    ),
+  };
+
   return (
     <div className="pane-left">
-      <PaneTabs
-        tabs={TAB_KEYS.map((t) => ({ key: t, label: TAB_LABEL[t], icon: TAB_ICON[t], hint: TAB_HINT[t] }))}
+      <PaneSections
+        sections={TAB_KEYS.map((t) => ({ key: t, label: TAB_LABEL[t], icon: TAB_ICON[t], hint: TAB_HINT[t], body: bodies[t] }))}
         value={tab}
         onChange={setTab}
       />
-      {tab === "items" && (
-        <>
-          <div className="psearch">
-            <Icon name="search" className="ico psearch-ico" />
-            <input placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search items" />
-            {q && (
-              <button className="btn icon ghost" onClick={() => setQ("")} title="Clear" aria-label="Clear search">
-                <Icon name="clear" />
-              </button>
-            )}
-            <button className="btn icon ghost" title="Object types" aria-pressed={hidden.size > 0} onClick={() => setShowTypeMenu(!showTypeMenu)} aria-label="Object types">
-              <Icon name="filter" />
-            </button>
-          </div>
-          {showTypeMenu && (
-            <div className="typefilter">
-              {TYPE_FILTERS.map((f) => (
-                <label key={f.type}>
-                  <input
-                    type="checkbox"
-                    checked={!hidden.has(f.type)}
-                    onChange={(e) => {
-                      const h = new Set(hidden);
-                      if (e.target.checked) h.delete(f.type);
-                      else h.add(f.type);
-                      setHidden(h);
-                    }}
-                  />
-                  {f.label}
-                </label>
-              ))}
-            </div>
-          )}
-          <div className="tree" role="tree">
-            {tree.loading.has(pathKey([])) && !tree.children.has(pathKey([])) && <div className="empty">Loading…</div>}
-            {tree.errors.get(pathKey([])) && <div className="err">{tree.errors.get(pathKey([]))}</div>}
-            <FavoritesSection
-              favorites={favorites.filter((f) => !needle || f.name.toLowerCase().includes(needle))}
-              activePath={props.activePath}
-              needle={needle}
-              onOpen={props.onOpen}
-              onUnstar={star}
-            />
-            {renderLevel([], 0)}
-          </div>
-        </>
-      )}
-      {tab === "collections" && <CollectionsTree onOpenQuery={(q) => props.onOpenNamedQuery?.(q)} activeQueryId={props.activeNamedQueryId} toast={ctx.toast} />}
-      {tab === "workflows" && <WorkflowsList toast={ctx.toast} />}
-      {tab === "history" && (
-        <HistoryList
-          connectionId={ctx.cfg.id}
-          onOpen={props.onOpenHistory ?? props.onOpenSql}
-          version={props.historyVersion}
-          dialect={ctx.driver.dialect.name}
-          onSavedNamed={(q) => {
-            setTab("collections");
-            props.onOpenNamedQuery?.(q);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -328,7 +331,7 @@ function FavoritesSection(props: {
 }
 
 // Collections and Workflows are separate tabs: one holds reusable named queries, the other
-// pipelines built from them. The tab strip collapses labels to icons when the pane is narrow.
+// pipelines built from them. Each is a folding section; one is open at a time.
 const TAB_KEYS = ["items", "collections", "workflows", "history"] as const;
 type PaneTabKey = (typeof TAB_KEYS)[number];
 const TAB_LABEL = { items: "Items", collections: "Collections", workflows: "Workflows", history: "History" } as const;
