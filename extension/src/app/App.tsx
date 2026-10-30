@@ -53,7 +53,8 @@ export function App() {
     case "home":
       page = (
         <Home
-          key={homeKey}
+          key={homeKey + (route.newConnection ? ":new" : "")}
+          newConnection={route.newConnection}
           banner={
             restore.offer ? (
               <RestoreBanner

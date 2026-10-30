@@ -1,18 +1,7 @@
-// Service worker: toolbar click opens or focuses the app tab (DESIGN.md §4.1) and keeps the
-// browser-preview redirect rules in sync with the saved settings (§3.12).
+// Service worker: keeps the browser-preview redirect rules in sync with the saved settings (§3.12).
+// The toolbar icon opens popup.html (manifest default_popup, DESIGN.md §4.1), not a handler here.
 
 import { handleDownloadCreated, loadPreviewSettings, PREVIEW_SETTINGS_KEY, syncPreviewRules } from "../preview/index";
-
-chrome.action.onClicked.addListener(async () => {
-  const url = chrome.runtime.getURL("app.html");
-  const [tab] = await chrome.tabs.query({ url: url + "*" });
-  if (tab?.id) {
-    await chrome.tabs.update(tab.id, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url });
-  }
-});
 
 async function resync(): Promise<void> {
   try {

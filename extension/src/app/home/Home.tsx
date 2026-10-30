@@ -65,11 +65,11 @@ function writeLast(id: string) {
  * `banner` is a slot at the very top of Home for app-level notices (e.g. "Found a backup…
  * Restore?"); it renders above everything else when set.
  */
-export function Home(props: { banner?: ReactNode } = {}) {
+export function Home(props: { banner?: ReactNode; newConnection?: boolean } = {}) {
   const [conns, setConns] = useState<SavedConnection[] | null>(null);
   const [files, setFiles] = useState<RecentFile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(readLast);
-  const [sheet, setSheet] = useState<Sheet>(null);
+  const [sheet, setSheet] = useState<Sheet>(props.newConnection ? { kind: "picker" } : null);
   const [extraGroups, setExtraGroups] = useState<string[]>([]);
   const [fileDrag, setFileDrag] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -132,6 +132,12 @@ export function Home(props: { banner?: ReactNode } = {}) {
       toast((e as Error).message);
     }
   };
+
+  // #home/new (the toolbar popup's "New connection") opened the picker; drop the flag from
+  // the URL so a reload shows plain Home.
+  useEffect(() => {
+    if (props.newConnection) history.replaceState(null, "", location.pathname + "#home");
+  }, [props.newConnection]);
 
   useKeys({
     "mod+o": () => void openFile(),

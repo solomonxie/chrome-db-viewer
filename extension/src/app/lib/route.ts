@@ -4,7 +4,8 @@
 import { buildSrcUrl, readSrcParam } from "../../preview/src-param";
 
 export type Route =
-  | { name: "home" }
+  /** #home/new opens Home with the new-connection picker showing (toolbar popup). */
+  | { name: "home"; newConnection?: boolean }
   | { name: "connection"; connectionId: string }
   | { name: "file"; src?: string; fileHandleId?: string }
   | { name: "settings"; section?: string }
@@ -17,6 +18,7 @@ export function parseRoute(hash: string, search = ""): Route {
   const src = sp?.src;
   const h = (sp ? sp.hash : hash).replace(/^#/, "");
 
+  if (h === "home/new") return { name: "home", newConnection: true };
   if (h.startsWith("c_") && h.length > 2) return { name: "connection", connectionId: decodeURIComponent(h.slice(2)) };
   if (h === "file" || h.startsWith("file/")) {
     const id = h.slice(5);
@@ -40,7 +42,7 @@ export function parseRoute(hash: string, search = ""): Route {
 export function routeHash(route: Route): string {
   switch (route.name) {
     case "home":
-      return "#home";
+      return route.newConnection ? "#home/new" : "#home";
     case "connection":
       return `#c_${encodeURIComponent(route.connectionId)}`;
     case "file":

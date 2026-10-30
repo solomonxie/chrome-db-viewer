@@ -1,0 +1,11 @@
+/* Toolbar popup: a fixed-width panel that reuses the connection picker's option rows (app.css .cpick-*). */
+
+html, body, #root { height: auto; }
+body.popup { width: 380px; overflow: hidden; }
+.pop { display: flex; flex-direction: column; max-height: 560px; }
+.pop-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.pop-search .ico { width: 15px; height: 15px; color: var(--faint); flex: none; }
+.pop-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font-size: 13.5px; color: var(--fg-strong); }
+.pop-search input::placeholder { color: var(--faint); }
+.pop-list { overflow: auto; padding: 4px; flex: 1; min-height: 0; }
+.pop-foot { display: flex; gap: 4px; padding: 6px; border-top: 1px solid var(--line-soft); }

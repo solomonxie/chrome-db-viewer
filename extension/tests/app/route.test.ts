@@ -4,6 +4,8 @@ import { parseRoute, routeHash, type Route } from "../../src/app/lib/route";
 test("empty hash is home", () => {
   expect(parseRoute("")).toEqual({ name: "home" });
   expect(parseRoute("#home")).toEqual({ name: "home" });
+  expect(parseRoute("#home/new")).toEqual({ name: "home", newConnection: true });
+  expect(routeHash({ name: "home", newConnection: true })).toBe("#home/new");
   expect(parseRoute("#nonsense")).toEqual({ name: "home" });
 });
 
