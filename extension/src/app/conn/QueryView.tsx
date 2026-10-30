@@ -60,6 +60,8 @@ export function QueryView(props: {
   onSaved: () => void;
   /** ⌘S in an unbound tab saved it into a collection: bind this tab to the new named query. */
   onBound?: (q: NamedQuery) => void;
+  /** The statement-log button, shown at the end of the bottom bar. */
+  logToggle?: React.ReactNode;
 }) {
   const { ctx } = props;
   const { state, run, abort } = useResult(ctx.driver, (h) => ctx.addHistory({ ...h, source: "editor" }));
@@ -476,6 +478,8 @@ export function QueryView(props: {
           {selection.size > 0 ? `${fmtInt(selection.size)} of ` : ""}
           {fmtInt(view.rows.length)} rows{selection.size > 0 ? " selected" : ""}
         </span>
+        <span className="spacer" />
+        {props.logToggle}
       </div>
       {nq && <EnvChangesConfirm nq={nq} />}
       {confirm && (

@@ -253,15 +253,16 @@ pre.code { margin: 0; padding: 12px 14px; font-family: var(--font-mono); font-si
 .splitter.rows:hover::before, .splitter.rows:focus-visible::before, .splitter.rows.dragging::before { width: auto; height: 2px; }
 body.resizing-rows { cursor: row-resize; user-select: none; }
 body.resizing { cursor: col-resize; user-select: none; }
-/* Pane tabs: a compact segmented control. Labels fold to icons (with tooltips) when narrow. */
-.ptabs { display: flex; gap: 2px; margin: 8px 8px 0; padding: 2px; background: var(--seg-bg); border: 1px solid var(--line-soft); border-radius: 7px; flex: none; }
-.ptabs button { flex: 1 1 auto; min-width: 0; border: 0; background: none; padding: 2px 8px; min-height: 26px; font-size: 12.5px; color: var(--muted); border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
-.ptabs button .ico { width: 14px; height: 14px; color: currentColor; }
-.ptabs button .lbl { overflow: hidden; text-overflow: ellipsis; }
-.ptabs button:hover:not([aria-selected="true"]) { color: var(--fg); background: var(--hover); }
-.ptabs button[aria-selected="true"] { background: var(--accent); color: #fff; font-weight: 600; }
-@container (max-width: 360px) { .ptabs button:not([aria-selected="true"]) .lbl { display: none; } .ptabs button:not([aria-selected="true"]) { flex: 0 0 34px; } }
-@container (max-width: 200px) { .ptabs button .lbl { display: none; } }
+/* Pane sections: folding headers stacked down the pane. The open one is a full-width accent bar
+   and its body takes the remaining height; folded ones sit below it, divided by hairlines. */
+.psecs { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.psec { display: flex; flex-direction: column; flex: none; min-height: 0; border-bottom: 1px solid var(--line-soft); }
+.psec.open { flex: 1; }
+.psec-head { display: flex; align-items: center; width: 100%; height: 34px; padding: 0 14px; border: 0; background: none; text-align: left; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-strong); flex: none; }
+.psec-head .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psec-head:hover { background: var(--hover); }
+.psec.open .psec-head { background: var(--accent); color: #fff; }
+.psec-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pane-title { display: flex; align-items: baseline; gap: 8px; padding: 12px 12px 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); flex: none; }
 .pane-title .faint { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11.5px; }
 .psearch { display: flex; gap: 4px; padding: 8px; align-items: center; position: relative; }
@@ -388,6 +389,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .foot select.input { padding: 0 4px 0 8px; }
 .foot .seg button { padding: 2px 10px; }
 .foot .btn.icon { min-width: 26px; }
+/* Statement log: a fixed-height strip under the bottom bar, so it never pushes the grid around. */
+.stmtlog { position: relative; flex: none; height: 132px; overflow: auto; padding: 6px 36px 6px 10px; border-top: 1px solid var(--line-soft); background: var(--chrome); font-family: var(--font-mono); font-size: 12px; line-height: 20px; }
+.stmtlog-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stmtlog-line.error { color: var(--del-fg); }
+.stmtlog-close { position: sticky; float: right; top: 0; margin-right: -30px; min-width: 24px; min-height: 24px; }
 .pending { display: flex; align-items: center; gap: 6px; background: var(--edit-bg); color: var(--edit-fg); border-radius: var(--r); padding: 2px 3px 2px 10px; font-weight: 500; }
 .pending .btn { padding: 0 8px; min-height: 24px; }
 .ro-banner { background: color-mix(in srgb, var(--env-stage) 10%, var(--surface)); color: var(--edit-fg); border-bottom: 1px solid color-mix(in srgb, var(--env-stage) 25%, transparent); padding: 5px 12px; font-size: 12.5px; display: flex; gap: 6px; align-items: center; }

@@ -268,8 +268,14 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const [historyVersion, setHistoryVersion] = useState(0);
   /** Query tabs bound to a named query (Collections): tab id → named query id. */
   const [boundTabs, setBoundTabs] = useState<Record<string, string>>(restored.bound);
-  const [log, setLog] = useState<{ sql: string; ms?: number; rows?: number; error?: string; at: number }[]>([]);
+  const [log, setLog] = useState<LogLine[]>([]);
   const [showLog, setShowLog] = useState(false);
+  // Sits at the right end of each view's bottom bar, just above the log it opens.
+  const logToggle = (
+    <button className="btn icon ghost" title="Statement log: every statement dbui ran on this connection" aria-pressed={showLog} onClick={() => setShowLog((v) => !v)} aria-label="Statement log">
+      <Icon name="terminal" />
+    </button>
+  );
   const nodeTypes = useRef(new Map<string, ObjectType>()).current;
   const schemaCache = useRef(new Map<string, Promise<TableSchema>>()).current;
 
@@ -618,9 +624,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
             {demo && <span className="tag demo">Demo data</span>}
           </button>
         </div>
-        <button className="btn icon ghost" title="Statements dbui ran" aria-pressed={showLog} onClick={() => setShowLog(!showLog)} aria-label="Statement log">
-          <Icon name="log" />
-        </button>
         <button className="btn icon ghost" title={`Refresh (${MOD}R)`} onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh">
           <Icon name="refresh" />
         </button>
@@ -691,6 +694,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 onPush={(entry, newTab) => pushEntry(entry, newTab, t.id)}
                 onDetails={setDetails}
                 onOpenSql={openSql}
+                logToggle={logToggle}
               />
             ) : (
               <QueryView
@@ -703,6 +707,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 onSql={(sql) => setTabs((ts) => ts.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, sql } : x)))}
                 onDetails={setDetails}
                 onSaved={() => setHistoryVersion((v) => v + 1)}
+                logToggle={logToggle}
                 onBound={(q) => {
                   setBoundTabs((b) => ({ ...b, [t.id]: q.id }));
                   setTabs((ts) => ts.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, title: q.name } : x)));
@@ -711,32 +716,18 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
             ),
           )}
 
-          {(count > 0 || showLog) && (
+          {showLog && <StatementLog log={log} onClose={() => setShowLog(false)} />}
+          {count > 0 && (
             <div className="foot">
-              {count > 0 && (
-                <span className="pending">
-                  {count} pending change{count === 1 ? "" : "s"}
-                  <button className="btn" onClick={() => setDrawer({ confirm: false })}>
-                    Review <kbd>{MOD}⇧P</kbd>
-                  </button>
-                  <button className="btn primary" onClick={commit} disabled={readOnly || applying}>
-                    Commit <kbd>{MOD}S</kbd>
-                  </button>
-                </span>
-              )}
-              {showLog && (
-                <div style={{ width: "100%", maxHeight: 160, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 13 }}>
-                  {log.length === 0 && <div className="faint">No statements yet.</div>}
-                  {log.map((l, i) => (
-                    <div key={i} style={{ color: l.error ? "var(--del-fg)" : undefined, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.error ?? l.sql}>
-                      <span className="faint">{new Date(l.at).toLocaleTimeString()} </span>
-                      {l.ms !== undefined && <span className="faint">{Math.round(l.ms)}ms </span>}
-                      {l.sql.replace(/\s+/g, " ")}
-                      {l.error && ` → ${l.error}`}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <span className="pending">
+                {count} pending change{count === 1 ? "" : "s"}
+                <button className="btn" onClick={() => setDrawer({ confirm: false })}>
+                  Review <kbd>{MOD}⇧P</kbd>
+                </button>
+                <button className="btn primary" onClick={commit} disabled={readOnly || applying}>
+                  Commit <kbd>{MOD}S</kbd>
+                </button>
+              </span>
             </div>
           )}
         </div>
@@ -793,6 +784,28 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
           }}
         />
       )}
+    </div>
+  );
+}
+
+type LogLine = { sql: string; ms?: number; rows?: number; error?: string; at: number };
+
+/** Statements dbui ran, newest first, in a fixed-height strip under the view's bottom bar. */
+function StatementLog({ log, onClose }: { log: LogLine[]; onClose: () => void }) {
+  return (
+    <div className="stmtlog" role="log" aria-label="Statement log">
+      <button className="btn icon ghost stmtlog-close" onClick={onClose} title="Hide the statement log" aria-label="Hide statement log">
+        <Icon name="close" />
+      </button>
+      {log.length === 0 && <div className="faint">No statements yet.</div>}
+      {log.map((l, i) => (
+        <div key={i} className={"stmtlog-line" + (l.error ? " error" : "")} title={l.error ?? l.sql}>
+          <span className="faint">{new Date(l.at).toLocaleTimeString()} </span>
+          {l.ms !== undefined && <span className="faint">{Math.round(l.ms)}ms </span>}
+          {l.sql.replace(/\s+/g, " ")}
+          {l.error && ` → ${l.error}`}
+        </div>
+      ))}
     </div>
   );
 }

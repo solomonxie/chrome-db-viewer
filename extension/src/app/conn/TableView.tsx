@@ -26,6 +26,8 @@ export function TableView(props: {
   onPush: (entry: TableEntry, newTab: boolean) => void;
   onDetails: (src: DetailsSource | null) => void;
   onOpenSql: (sql: string, title?: string) => void;
+  /** The statement-log button, shown at the end of the bottom bar. */
+  logToggle?: React.ReactNode;
 }) {
   const { ctx, entry } = props;
   const [schema, setSchema] = useState<TableSchema | null>(null);
@@ -437,6 +439,7 @@ export function TableView(props: {
         <button className="btn icon" disabled={!hasMore || state.running} onClick={() => setPage(page + 1)} title="Next page" aria-label="Next page">
           <Icon name="next" />
         </button>
+        {props.logToggle}
       </div>
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
