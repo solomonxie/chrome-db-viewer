@@ -180,3 +180,24 @@ test("execute pages results and stops on abort", async () => {
   await expect(collect(d.execute({ sql: "SELECT 1" }, ac.signal))).rejects.toMatchObject({ code: "cancelled" });
   await d.disconnect();
 });
+
+test("file:// src (a file dropped onto Chrome) is read through readFileUrl, not handed to DuckDB as a URL", async () => {
+  const seen: string[] = [];
+  const driver = createDriver({
+    engine: testEngine,
+    readFileUrl: async (url, name) => {
+      seen.push(url);
+      return new File([await fixtureFile("orders.csv").arrayBuffer()], name);
+    },
+    fetch: async () => {
+      throw new Error("no network for a local file");
+    },
+  });
+  await driver.connect(cfg({ src: "file:///Users/me/Downloads/orders.csv" }));
+  expect(seen).toEqual(["file:///Users/me/Downloads/orders.csv"]);
+  const nodes = await driver.listObjects([]);
+  expect(nodes[0]!.meta).toBe("CSV · 845 B · 20 rows");
+  const { rows } = await run(driver, "SELECT count(*) FROM sheet");
+  expect(Number(rows[0]![0])).toBe(20);
+  await driver.disconnect();
+});

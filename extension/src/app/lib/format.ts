@@ -8,6 +8,19 @@ export function cellText(v: Cell): string {
   return String(v);
 }
 
+/** The value as a link target when it's a whole http(s) URL, else null. Nothing else (javascript:, data:) ever becomes a link. */
+export function linkOf(v: Cell): string | null {
+  if (typeof v !== "string" || v.length > 4096) return null;
+  const s = v.trim();
+  if (!/^https?:\/\/\S+$/i.test(s)) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Parses what the user typed into a cell back into a Cell, guided by the old value / type. */
 export function parseCellInput(text: string, like: Cell, type: string): Cell {
   if (text === "NULL") return null;

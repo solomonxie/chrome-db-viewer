@@ -7,13 +7,16 @@ import { JsonView } from "../components/JsonView";
 import { Highlight } from "../components/ui";
 import { cellsEqual, editCell, pendingValue, cellStatus } from "../lib/changes";
 import { isBoolType, isJsonType, isNumericType, isTimeType } from "../lib/coltypes";
-import { cellText, parseCellInput } from "../lib/format";
+import { cellText, linkOf, parseCellInput } from "../lib/format";
 import type { ConnCtx, DetailsSource } from "./model";
 import { Icon } from "../components/Icon";
 
 const MULTI = Symbol("multi");
 
-export function DetailsPane({ ctx, source }: { ctx: ConnCtx; source: DetailsSource | null }) {
+/** Only what the pane needs from a connection; file sheets pass a read-only stand-in. */
+export type DetailsCtx = Pick<ConnCtx, "pending" | "setPending" | "readOnly">;
+
+export function DetailsPane({ ctx, source }: { ctx: DetailsCtx; source: DetailsSource | null }) {
   const [q, setQ] = useState("");
   const rows = source?.rows ?? [];
   const columns = source?.columns ?? [];
@@ -175,6 +178,7 @@ function FieldEditor(props: { col: Column; value: Cell | typeof MULTI; editable:
   }
   const text = v === null ? "" : cellText(v);
   const long = text.length > 60 || text.includes("\n");
+  const url = !multi && !editable ? linkOf(v) : null;
   const common = {
     className: "input",
     disabled: !editable,
@@ -186,6 +190,13 @@ function FieldEditor(props: { col: Column; value: Cell | typeof MULTI; editable:
       setDraft(null);
     },
   };
+  if (url) {
+    return (
+      <a className="input link" href={url} target="_blank" rel="noopener noreferrer" title={url}>
+        {text}
+      </a>
+    );
+  }
   return long ? (
     <textarea {...common} rows={Math.min(10, Math.max(3, Math.ceil(text.length / 40)))} />
   ) : (

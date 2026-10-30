@@ -1,5 +1,5 @@
 // File sheet (#file): breadcrumb sheet stack over createDriver("file"), with frequency,
-// summary, sort and filter. While the DuckDB driver is still a placeholder, the error card
+// summary, sort, filter, a SQL bar for any query over the file, and a Details pane. While the DuckDB driver is still a placeholder, the error card
 // offers the demo sheet so the UI can be tried.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,14 +14,16 @@ import { MOD, SHIFT, useKeys } from "../lib/keys";
 import { navigate } from "../lib/route";
 import * as db from "../store/db";
 import { useResult } from "../conn/useResult";
-import { cycleSort, equalsCondition, filteredSheet, frequencySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
+import { cycleSort, equalsCondition, filteredSheet, frequencySheet, querySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
+import { DetailsPane, type DetailsCtx } from "../conn/DetailsPane";
+import type { DetailsSource } from "../conn/model";
+import { emptyPending } from "../lib/changes";
+import { SqlEditor } from "../components/SqlEditor";
+import { connectionSource } from "../lib/completion";
+import { Splitter, usePaneWidth } from "../components/Splitter";
 import { Icon } from "../components/Icon";
 
-type Phase =
-  | { kind: "loading" }
-  | { kind: "pick" }
-  | { kind: "error"; message: string; name: string }
-  | { kind: "ready"; driver: Driver; table: string; name: string; size?: number; demo: boolean };
+type Phase = { kind: "loading" } | { kind: "pick" } | { kind: "error"; message: string; name: string } | { kind: "ready"; driver: Driver; table: string; name: string; size?: number; demo: boolean };
 
 async function openFileDriver(cfg: ConnectionConfig): Promise<{ driver: Driver; table: string }> {
   const driver = await createDriver("file");
@@ -66,7 +68,7 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
           if (!cancelled) setPhase({ kind: "pick" });
           return;
         }
-        document.title = `${name} · dbui`;
+        document.title = name;
         options.fileName = name;
         const cfg: ConnectionConfig = { id: `file:${src ?? fileHandleId}`, name, driver: "file", env: "local", readOnly: true, options };
         const { driver, table } = await openFileDriver(cfg);
@@ -153,6 +155,14 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   const [filter, setFilter] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [totalRows, setTotalRows] = useState<number | null>(null);
+  const [showDetails, setShowDetails] = useState(() => readFlag(DETAILS_KEY));
+  const [showSql, setShowSql] = useState(false);
+  const [sqlText, setSqlText] = useState(() => `SELECT *\nFROM ${driver.dialect.quoteIdent(table)}\nLIMIT 100`);
+  const detailsPane = usePaneWidth("dbui.pane.right", 340, 260, 720);
+  // Height of the SQL panel at the bottom (the hook stores one number; here it's a height).
+  const sqlPane = usePaneWidth("dbui.pane.fileSql", 200, 110, 600);
+  // Autocomplete: the file's table and its columns, plus keywords and functions.
+  const completion = useMemo(() => ({ source: connectionSource(driver), quote: (n: string) => driver.dialect.quoteIdent(n) }), [driver]);
   const toast = useToast();
   const { state, run, abort } = useResult(driver);
   const sheet = stack[stack.length - 1]!;
@@ -185,6 +195,21 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   }, [driver, table]);
 
   const curColumn = cursor ? state.columns[cursor.col]?.name : undefined;
+
+  const toggleDetails = () =>
+    setShowDetails((v) => {
+      writeFlag(DETAILS_KEY, !v);
+      return !v;
+    });
+  const runSql = () => {
+    const text = sqlText.trim();
+    if (text) push(querySheet(text));
+  };
+  // The Details pane shows the selected rows (or the cursor row), read-only.
+  const details: DetailsSource | null = useMemo(() => {
+    const rows = selection.size ? [...selection].sort((a, b) => a - b).slice(0, 500) : cursor ? [cursor.row] : [];
+    return { table: null, columns: state.columns, editable: false, rows: rows.map((i) => ({ rowId: String(i), key: {}, values: state.rows[i] ?? [] })) };
+  }, [selection, cursor, state.columns, state.rows]);
   const push = (s: Sheet) => setStack((st) => [...st, s]);
   const back = () => setStack((st) => (st.length > 1 ? st.slice(0, -1) : st));
 
@@ -222,6 +247,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     "mod+i": openSummary,
     "mod+f": () => setFilter(filter === null ? "" : null),
     "mod+k": () => setPalette(true),
+    "mod+e": () => setShowSql((v) => !v),
+    "mod+alt+r": toggleDetails,
     "mod+.": abort,
     "mod+o": () =>
       void pickFile().then(async (h) => {
@@ -236,6 +263,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     { id: "freq", label: "Frequency table of current column", hint: `${MOD}${SHIFT}F`, run: openFrequency },
     { id: "sum", label: "Column summary", hint: `${MOD}I`, run: openSummary },
     { id: "filter", label: "Filter (SQL WHERE)", hint: `${MOD}F`, run: () => setFilter("") },
+    { id: "sql", label: "SQL bar: query this file", hint: `${MOD}E`, run: () => setShowSql(true) },
+    { id: "details", label: "Toggle the Details pane", hint: `${MOD}⌥R`, run: toggleDetails },
     { id: "sel", label: "Open selected rows as a sheet", run: openSelection },
     { id: "back", label: "Back one sheet", hint: "Esc", run: back },
     { id: "home", label: "Go to Home", run: () => navigate({ name: "home" }) },
@@ -261,21 +290,36 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
             </span>
           ))}
         </nav>
-        {props.demo && <span className="tag demo">Demo data</span>}
-        <span className="faint" style={{ fontSize: 13 }}>
-          {ext}
-          {props.size !== undefined && ` · ${fmtBytes(props.size)}`}
-          {totalRows !== null && ` · ${fmtInt(totalRows)} rows`}
-        </span>
-        <button className="btn" onClick={openFrequency} title={`${MOD}${SHIFT}F`}>
-          Frequency
-        </button>
-        <button className="btn" onClick={openSummary} title={`${MOD}I`}>
-          Summary
-        </button>
-        <button className="btn" onClick={() => setFilter(filter === null ? "" : null)} aria-pressed={filter !== null} title={`${MOD}F`}>
-          Filter
-        </button>
+        <div className="sheet-tools">
+          {props.demo && <span className="tag demo">Demo data</span>}
+          <span className="sheet-meta faint">
+            {ext}
+            {props.size !== undefined && ` · ${fmtBytes(props.size)}`}
+            {totalRows !== null && ` · ${fmtInt(totalRows)} rows`}
+          </span>
+          <button className="btn" onClick={openFrequency} title={`Frequency of the current column (${MOD}${SHIFT}F)`}>
+            Frequency
+          </button>
+          <button className="btn" onClick={openSummary} title={`Column summary (${MOD}I)`}>
+            Summary
+          </button>
+          <button className="btn" onClick={() => setFilter(filter === null ? "" : null)} aria-pressed={filter !== null} title={`Filter with a SQL WHERE (${MOD}F)`}>
+            Filter
+          </button>
+          <button className="btn" onClick={() => setShowSql(!showSql)} aria-pressed={showSql} title={`Query this file with any SQL (${MOD}E)`}>
+            SQL
+          </button>
+          <button
+            className="btn ghost details-toggle"
+            onClick={toggleDetails}
+            aria-pressed={showDetails}
+            title={`${showDetails ? "Hide" : "Show"} the Details pane: the selected row's fields (${MOD}⌥R)`}
+            aria-label="Toggle Details pane"
+          >
+            <Icon name="panel-right" />
+            Details
+          </button>
+        </div>
       </div>
       {filter !== null ? (
         <div className="bar">
@@ -305,31 +349,82 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
       ) : (
         <div className="bar" style={{ minHeight: 0, padding: 0, border: 0 }} />
       )}
-      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        {state.running && <div className="loading-bar" />}
-        {state.error && <div className="err" style={{ margin: 8 }}>{state.error}</div>}
-        {sheet.kind === "frequency" ? (
-          <FrequencyTable column={sheet.column} rows={state.rows} max={maxCount} total={freqTotal} cursor={cursor?.row ?? null} onCursor={(r) => setCursor({ row: r, col: 0 })} onActivate={activate} />
-        ) : (
-          <DataGrid
-            columns={state.columns}
-            rowCount={state.rows.length}
-            value={(r, c) => state.rows[r]?.[c] ?? null}
-            sort={sheet.kind === "source" ? sheet.sort : undefined}
-            onSort={(name, additive) => sheet.kind === "source" && setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort, name, additive) }])}
-            selection={selection}
-            cursor={cursor}
-            onSelection={(s, c) => {
-              setSelection(s);
-              setCursor(c);
-            }}
-            onActivate={activate}
-            highlightColumn
-            resetKey={sql}
-            onCopy={(rows) => void navigator.clipboard.writeText(rows.map((r) => (state.rows[r] ?? []).map(cellText).join("\t")).join("\n")).then(() => toast("Copied"))}
-          />
-        )}
+      <div className="sheet-body" style={{ gridTemplateColumns: showDetails ? `minmax(0, 1fr) var(--splitter-w) ${detailsPane.width}px` : "minmax(0, 1fr)" }}>
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+          {state.running && <div className="loading-bar" />}
+          {state.error && (
+            <div className="err" style={{ margin: 8 }}>
+              {state.error}
+            </div>
+          )}
+          {sheet.kind === "frequency" ? (
+            <FrequencyTable
+              column={sheet.column}
+              rows={state.rows}
+              max={maxCount}
+              total={freqTotal}
+              cursor={cursor?.row ?? null}
+              onCursor={(r) => setCursor({ row: r, col: 0 })}
+              onActivate={activate}
+            />
+          ) : (
+            <DataGrid
+              columns={state.columns}
+              rowCount={state.rows.length}
+              value={(r, c) => state.rows[r]?.[c] ?? null}
+              sort={sheet.kind === "source" ? sheet.sort : undefined}
+              onSort={(name, additive) => sheet.kind === "source" && setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort, name, additive) }])}
+              selection={selection}
+              cursor={cursor}
+              onSelection={(s, c) => {
+                setSelection(s);
+                setCursor(c);
+              }}
+              onActivate={activate}
+              highlightColumn
+              resetKey={sql}
+              onCopy={(rows) => void navigator.clipboard.writeText(rows.map((r) => (state.rows[r] ?? []).map(cellText).join("\t")).join("\n")).then(() => toast("Copied"))}
+            />
+          )}
+        </div>
+        {showDetails && <Splitter side="right" label="Resize Details pane" size={detailsPane} onResize={detailsPane.setWidth} />}
+        {showDetails && <DetailsPane ctx={READ_ONLY_DETAILS} source={details} />}
       </div>
+      {showSql && <Splitter side="bottom" label="Resize SQL panel" size={sqlPane} onResize={sqlPane.setWidth} />}
+      {showSql && (
+        <div className="sheet-sql" style={{ height: sqlPane.width }}>
+          <div className="sheet-sql-bar">
+            <button className="btn primary" onClick={runSql} disabled={!sqlText.trim() || state.running} title={`Run the query (${MOD}↵)`}>
+              <Icon name="play" /> Run <kbd>{MOD}↵</kbd>
+            </button>
+            <span className="faint sheet-sql-hint">
+              The file is table <code>{driver.dialect.quoteIdent(table)}</code> · results open as a new sheet · Esc goes back · ⌃Space suggests
+            </span>
+            <span className="spacer" />
+            <button className="btn icon ghost" onClick={() => setShowSql(false)} title="Hide the SQL panel" aria-label="Hide SQL panel">
+              <Icon name="close" />
+            </button>
+          </div>
+          <SqlEditor
+            className="sheet-sqled"
+            value={sqlText}
+            onChange={setSqlText}
+            completion={completion}
+            autoFocus
+            aria-label="SQL over this file"
+            placeholder={`SELECT … FROM ${driver.dialect.quoteIdent(table)}`}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                runSql();
+              } else if (e.key === "Escape") {
+                e.stopPropagation();
+                setShowSql(false);
+              }
+            }}
+          />
+        </div>
+      )}
       <div className="foot">
         <span className="hint">
           {sheet.kind === "frequency" ? <span>Enter: filter source</span> : sheet.kind === "summary" ? <span>Enter: frequency of that column</span> : <span>Click header: sort</span>}
@@ -340,6 +435,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
           </span>
           <span>{MOD}I: summary</span>
           <span>{MOD}F: filter</span>
+          <span>{MOD}E: SQL</span>
         </span>
         <span className="spacer" />
         <span className="count">
@@ -352,6 +448,24 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
     </div>
   );
+}
+
+const DETAILS_KEY = "dbui.file.details";
+const READ_ONLY_DETAILS: DetailsCtx = { pending: emptyPending, setPending: () => {}, readOnly: true };
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeFlag(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    // storage blocked: the choice lasts for this page only
+  }
 }
 
 function FrequencyTable(props: { column: string; rows: unknown[][]; max: number; total: number; cursor: number | null; onCursor: (r: number) => void; onActivate: (r: number) => void }) {

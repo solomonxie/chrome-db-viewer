@@ -10,7 +10,7 @@ export interface Token {
   text: string;
 }
 
-const KEYWORDS = new Set(
+export const KEYWORDS = new Set(
   (
     "select from where and or not in is null as on join left right inner outer full cross natural using group by order " +
     "having limit offset union all distinct insert into values update set delete create table view index drop alter add " +
@@ -23,7 +23,7 @@ const KEYWORDS = new Set(
   ).split(" "),
 );
 
-const FUNCTIONS = new Set(
+export const FUNCTIONS = new Set(
   (
     "count sum avg min max coalesce ifnull nullif round floor ceil abs length lower upper trim substr substring concat " +
     "now current_date current_timestamp date_trunc date_sub date_add date_diff datediff to_char to_date json_value " +

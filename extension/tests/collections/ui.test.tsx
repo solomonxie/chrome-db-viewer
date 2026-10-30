@@ -1,5 +1,5 @@
-// jsdom: open the demo connection, create a collection and a named query, set a variable,
-// and watch the Rendered SQL update. IndexedDB is absent in jsdom, so the store keeps rows in memory.
+// jsdom: open the demo connection, create a collection and a named query (named inline, no
+// prompt() dialogs), set a variable, and watch the Rendered SQL update. Deletes have Undo. IndexedDB is absent in jsdom, so the store keeps rows in memory.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
@@ -43,9 +43,17 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+async function renameInline(label: string, name: string) {
+  await until(() => !!$(`input[aria-label='${label}']`));
+  const input = $<HTMLInputElement>(`input[aria-label='${label}']`)!;
+  await act(async () => {
+    type(input, name);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}
+
 test("create a collection and query, set a variable, and the Rendered SQL updates", async () => {
-  const answers = ["Ad performance", "orders_by_status"];
-  vi.spyOn(window, "prompt").mockImplementation(() => answers.shift() ?? null);
+  const prompt = vi.spyOn(window, "prompt");
 
   history.replaceState(null, "", "/app.html#c_demo");
   host = document.createElement("div");
@@ -55,14 +63,20 @@ test("create a collection and query, set a variable, and the Rendered SQL update
   await until(() => !!$(".tree")?.textContent?.includes("orders"));
 
   await act(async () => byText(".psec-head", "Collections")!.click());
+  // A new collection appears with a default name, open for renaming in its row.
   await act(async () => byText(".empty .btn", "New collection")!.click());
+  await until(() => !!$("input[aria-label='Collection name']"));
+  expect($<HTMLInputElement>("input[aria-label='Collection name']")!.value).toBe("New collection");
+  await renameInline("Collection name", "Ad performance");
   await until(() => !!byText(".coll-head .nm", "Ad performance"));
 
   // New query from the collection's row menu; it opens in a query tab bound to it.
   await act(async () => $<HTMLElement>(".coll-head .rowmenu")!.click());
-  await act(async () => byText(".menu button", "New query…")!.click());
+  await act(async () => byText(".menu button", "New query")!.click());
   await until(() => !!$("textarea[aria-label='Template editor']"));
-  expect(byText(".coll-query .nm", "orders_by_status")).toBeDefined();
+  await renameInline("Query name", "orders_by_status");
+  await until(() => !!byText(".coll-query .nm", "orders_by_status"));
+  expect(prompt).not.toHaveBeenCalled();
 
   const editor = $<HTMLTextAreaElement>("textarea[aria-label='Template editor']")!;
   await act(async () => type(editor, "SELECT * FROM {{ table | ident }} WHERE status = {{ status | sql }} LIMIT {{ var('limit', 5) }}"));
@@ -102,4 +116,30 @@ test("create a collection and query, set a variable, and the Rendered SQL update
   await act(async () => run.click());
   await until(() => host!.querySelectorAll(".vgrid .r").length > 0 || !!$(".center .err"));
   expect($(".center .err")).toBeNull();
+});
+
+test("delete a query from its menu, then Undo brings it back", async () => {
+  const confirm = vi.spyOn(window, "confirm");
+  history.replaceState(null, "", "/app.html#c_demo");
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<App />));
+  await until(() => !!$(".tree")?.textContent?.includes("orders"));
+  await act(async () => byText(".psec-head", "Collections")!.click());
+  await until(() => !!$(".coll-head .rowmenu"));
+  await act(async () => $<HTMLElement>(".coll-head .rowmenu")!.click());
+  await act(async () => byText(".menu button", "New query")!.click());
+  await renameInline("Query name", "to_delete_later");
+  await until(() => !!byText(".coll-query .nm", "to_delete_later"));
+
+  const row = byText(".coll-query .nm", "to_delete_later")!.closest<HTMLElement>(".coll-query")!;
+  await act(async () => row.querySelector<HTMLElement>(".rowmenu")!.click());
+  await act(async () => byText(".menu button", "Delete query")!.click());
+  await until(() => !byText(".coll-query .nm", "to_delete_later"));
+  expect(confirm).not.toHaveBeenCalled();
+  expect($(".toast")!.textContent).toContain('Deleted query "to_delete_later"');
+
+  await act(async () => byText(".toast-action", "Undo")!.click());
+  await until(() => !!byText(".coll-query .nm", "to_delete_later"));
 });

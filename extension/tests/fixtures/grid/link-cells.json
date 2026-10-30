@@ -1,0 +1,18 @@
+{
+  "links": [
+    ["https://storage.googleapis.com/bucket/videos/C1465.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=604800", "https://storage.googleapis.com/bucket/videos/C1465.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=604800"],
+    ["  http://example.com/a  ", "http://example.com/a"],
+    ["HTTPS://Example.com/Path", "https://example.com/Path"]
+  ],
+  "notLinks": [
+    "javascript:alert(1)",
+    "data:text/html,<b>x</b>",
+    "see https://example.com for details",
+    "www.example.com",
+    "ftp://example.com/file.csv",
+    "https://",
+    "",
+    1202475063873,
+    null
+  ]
+}

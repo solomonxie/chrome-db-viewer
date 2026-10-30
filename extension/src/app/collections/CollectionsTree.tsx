@@ -1,5 +1,6 @@
 // Left pane "Collections" tab (DESIGN.md §3.14): collections → folders → named queries, with
-// new / rename / delete from a context menu, drag a query or folder onto a folder (or the
+// new / rename / delete from a context menu (names are edited inline in the row; new items are
+// created with a default name and open for rename; delete has Undo in the toast), drag a query or folder onto a folder (or the
 // collection, for top level), settings, scripts and export/import. Collections hold queries only;
 // workflows have their own tab (WorkflowsList).
 
@@ -25,16 +26,16 @@ import {
   uniqueName,
   type CollectionBundle,
 } from "../../collections/store";
-import { ContextMenu, Highlight, type MenuItem } from "../components/ui";
+import { ContextMenu, Highlight, type MenuItem, type Toast } from "../components/ui";
 import { Icon } from "../components/Icon";
-import { Chevron, KindIcon } from "../components/TreeRow";
+import { Chevron, InlineName, KindIcon } from "../components/TreeRow";
 import { CollectionSettings, ScriptsModal } from "./CollectionSettings";
 
 type DragItem = { kind: "query" | "folder"; id: string; collectionId: string };
 
 const DRAG_MIME = "application/x-dbui-collection-item";
 
-export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; activeQueryId?: string; toast: (m: string) => void }) {
+export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; activeQueryId?: string; toast: Toast }) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [bundles, setBundles] = useState<Map<string, CollectionBundle>>(new Map());
   const [open, setOpen] = useState<Set<string>>(() => new Set(readOpen()));
@@ -44,6 +45,8 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
   const [scripts, setScripts] = useState<{ title: string; target: Folder | NamedQuery } | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  /** The row being renamed inline: "c:<id>", "f:<id>" or "q:<id>". */
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   useEffect(() => onCollectionsChanged(() => setVersion((v) => v + 1)), []);
 
@@ -70,24 +73,44 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
     writeOpen([...next]);
   };
 
+  // New items get a default name and open for inline rename right away.
   const newCollection = async () => {
-    const name = prompt("New collection name", uniqueName("New collection", collections.map((c) => c.name)));
-    if (!name) return;
-    const c = await createCollection(name);
+    const c = await createCollection(
+      uniqueName(
+        "New collection",
+        collections.map((c) => c.name),
+      ),
+    );
     expand("c:" + c.id);
+    setRenaming("c:" + c.id);
   };
   const newFolder = async (collectionId: string, parentId?: string) => {
-    const name = prompt("New folder name", "New folder");
-    if (!name) return;
-    await createFolder(collectionId, name, parentId);
+    const siblings =
+      bundles
+        .get(collectionId)
+        ?.folders.filter((f) => f.parentId === parentId)
+        .map((f) => f.name) ?? [];
+    const f = await createFolder(collectionId, uniqueName("New folder", siblings), parentId);
     expand("c:" + collectionId, ...(parentId ? ["f:" + parentId] : []));
+    setRenaming("f:" + f.id);
   };
   const newQuery = async (collectionId: string, folderId?: string) => {
-    const name = prompt("New query name", "new_query");
-    if (!name) return;
-    const created = await createQuery(collectionId, name, { folderId, sql: "SELECT *\nFROM {{ table | ident }}\nLIMIT {{ var('limit', 100) }}" });
+    const created = await createQuery(collectionId, "new_query", { folderId, sql: "SELECT *\nFROM {{ table | ident }}\nLIMIT {{ var('limit', 100) }}" });
     expand("c:" + collectionId, ...(folderId ? ["f:" + folderId] : []));
     props.onOpenQuery(created);
+    setRenaming("q:" + created.id);
+  };
+  const removeWithUndo = async (label: string, remove: () => Promise<() => Promise<void>>) => {
+    try {
+      const restore = await remove();
+      props.toast(`Deleted ${label}`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
+    } catch (e) {
+      props.toast((e as Error).message);
+    }
+  };
+  const rename = (key: string, name: string | null, save: (name: string) => Promise<unknown>) => {
+    setRenaming((r) => (r === key ? null : r));
+    if (name) void save(name).catch((e) => props.toast((e as Error).message));
   };
 
   const onDrop = async (e: React.DragEvent, collectionId: string, folderId: string | undefined) => {
@@ -159,70 +182,48 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
   const needle = q.trim().toLowerCase();
 
   const collectionMenu = (c: Collection): MenuItem[] => [
-    { label: "New query…", onClick: () => void newQuery(c.id) },
-    { label: "New folder…", onClick: () => void newFolder(c.id) },
+    { label: "New query", onClick: () => void newQuery(c.id) },
+    { label: "New folder", onClick: () => void newFolder(c.id) },
     { separator: true, label: "" },
     { label: "Settings, variables, environments…", onClick: () => setSettings(c) },
-    {
-      label: "Rename…",
-      onClick: async () => {
-        const name = prompt("Rename collection", c.name);
-        if (name && name !== c.name) await saveCollection({ ...c, name });
-      },
-    },
+    { label: "Rename", onClick: () => setRenaming("c:" + c.id) },
     { label: "Export as JSON", onClick: () => void exportOne(c) },
     { separator: true, label: "" },
-    {
-      label: "Delete collection…",
-      onClick: async () => {
-        if (confirm(`Delete collection "${c.name}" with all its folders and queries?`)) await deleteCollection(c.id);
-      },
-    },
+    { label: "Delete collection", onClick: () => void removeWithUndo(`collection "${c.name}"`, () => deleteCollection(c.id)) },
   ];
   const folderMenu = (f: Folder): MenuItem[] => [
-    { label: "New query…", onClick: () => void newQuery(f.collectionId, f.id) },
-    { label: "New subfolder…", onClick: () => void newFolder(f.collectionId, f.id) },
+    { label: "New query", onClick: () => void newQuery(f.collectionId, f.id) },
+    { label: "New subfolder", onClick: () => void newFolder(f.collectionId, f.id) },
     { separator: true, label: "" },
-    {
-      label: "Rename…",
-      onClick: async () => {
-        const name = prompt("Rename folder", f.name);
-        if (name && name !== f.name) await saveFolder({ ...f, name });
-      },
-    },
+    { label: "Rename", onClick: () => setRenaming("f:" + f.id) },
     { label: "Scripts…", onClick: () => setScripts({ title: `Scripts for folder ${f.name}`, target: f }) },
     { separator: true, label: "" },
-    {
-      label: "Delete folder…",
-      onClick: async () => {
-        if (confirm(`Delete folder "${f.name}"? Its queries move up a level.`)) await deleteFolder(f.id);
-      },
-    },
+    { label: "Delete folder", onClick: () => void removeWithUndo(`folder "${f.name}" (its queries moved up a level)`, () => deleteFolder(f.id)) },
   ];
   const queryMenu = (nq: NamedQuery): MenuItem[] => [
     { label: "Open", onClick: () => props.onOpenQuery(nq) },
-    {
-      label: "Rename…",
-      onClick: async () => {
-        const name = prompt("Rename query", nq.name);
-        if (name && name !== nq.name) await saveQuery({ ...nq, name });
-      },
-    },
+    { label: "Rename", onClick: () => setRenaming("q:" + nq.id) },
     {
       label: "Duplicate",
       onClick: async () => {
-        const siblings = bundles.get(nq.collectionId)?.queries.filter((x) => x.folderId === nq.folderId).map((x) => x.name) ?? [];
-        await createQuery(nq.collectionId, uniqueName(`${nq.name}_copy`, siblings), { folderId: nq.folderId, sql: nq.sql, vars: nq.vars, scripts: nq.scripts, connectionId: nq.connectionId, description: nq.description });
+        const siblings =
+          bundles
+            .get(nq.collectionId)
+            ?.queries.filter((x) => x.folderId === nq.folderId)
+            .map((x) => x.name) ?? [];
+        await createQuery(nq.collectionId, uniqueName(`${nq.name}_copy`, siblings), {
+          folderId: nq.folderId,
+          sql: nq.sql,
+          vars: nq.vars,
+          scripts: nq.scripts,
+          connectionId: nq.connectionId,
+          description: nq.description,
+        });
       },
     },
     { label: "Scripts…", onClick: () => setScripts({ title: `Scripts for ${nq.name}`, target: nq }) },
     { separator: true, label: "" },
-    {
-      label: "Delete query…",
-      onClick: async () => {
-        if (confirm(`Delete query "${nq.name}"?`)) await deleteQuery(nq.id);
-      },
-    },
+    { label: "Delete query", onClick: () => void removeWithUndo(`query "${nq.name}"`, () => deleteQuery(nq.id)) },
   ];
   const showMenu = (e: React.MouseEvent, items: MenuItem[]) => {
     e.preventDefault();
@@ -244,6 +245,11 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
       if (needle && !folderHasMatch(b, f.id)) continue;
       const key = "f:" + f.id;
       const isOpen = open.has(key) || !!needle;
+      if (renaming === key) {
+        out.push(<InlineName key={key} value={f.name} label="Folder name" indent={6 + depth * 12 + 40} onDone={(n) => rename(key, n, (name) => saveFolder({ ...f, name }))} />);
+        if (isOpen) out.push(...renderLevel(b, f.id, depth + 1));
+        continue;
+      }
       out.push(
         <button
           key={key}
@@ -259,7 +265,11 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
           <Chevron open={isOpen} />
           <KindIcon name={isOpen ? "folder-open" : "folder"} />
           <span className="nm">{f.name}</span>
-          {f.scripts && (f.scripts.pre || f.scripts.post) && <span className="meta" title="Has scripts">ƒ</span>}
+          {f.scripts && (f.scripts.pre || f.scripts.post) && (
+            <span className="meta" title="Has scripts">
+              ƒ
+            </span>
+          )}
           <CountBadge n={countIn(b, f.id)} />
           <RowAddButton onClick={() => void newQuery(b.collection.id, f.id)} label={`New query in ${f.name}`} />
           <RowMenuButton onClick={(e) => showMenu(e, folderMenu(f))} label={`Actions for folder ${f.name}`} />
@@ -269,6 +279,11 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
     }
     const queries = b.queries.filter((x) => x.folderId === parentId && queryMatches(x)).sort((x, y) => x.name.localeCompare(y.name));
     for (const nq of queries) {
+      const qkey = "q:" + nq.id;
+      if (renaming === qkey) {
+        out.push(<InlineName key={qkey} value={nq.name} label="Query name" indent={6 + depth * 12 + 40} onDone={(n) => rename(qkey, n, (name) => saveQuery({ ...nq, name }))} />);
+        continue;
+      }
       out.push(
         <button
           key={"q:" + nq.id}
@@ -321,22 +336,30 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
           if (needle && !isOpen && !c.name.toLowerCase().includes(needle)) return null;
           return (
             <div key={c.id} className="coll" role="group">
-              <button
-                className={"node coll-head" + (dropTarget === key ? " drop" : "")}
-                onClick={() => toggle(key)}
-                onContextMenu={(e) => showMenu(e, collectionMenu(c))}
-                role="treeitem"
-                aria-expanded={isOpen}
-                {...dropProps(key, c.id, undefined)}
-              >
-                <Chevron open={isOpen} />
-                <KindIcon name="collections" />
-                <span className="nm">{c.name}</span>
-                {env && <span className="meta" title="Active environment">{env.name}</span>}
-                {b && <CountBadge n={b.queries.length} />}
-                <RowAddButton onClick={() => void newQuery(c.id)} label={`New query in ${c.name}`} />
-                <RowMenuButton onClick={(e) => showMenu(e, collectionMenu(c))} label={`Actions for collection ${c.name}`} />
-              </button>
+              {renaming === key ? (
+                <InlineName value={c.name} label="Collection name" indent={46} onDone={(n) => rename(key, n, (name) => saveCollection({ ...c, name }))} />
+              ) : (
+                <button
+                  className={"node coll-head" + (dropTarget === key ? " drop" : "")}
+                  onClick={() => toggle(key)}
+                  onContextMenu={(e) => showMenu(e, collectionMenu(c))}
+                  role="treeitem"
+                  aria-expanded={isOpen}
+                  {...dropProps(key, c.id, undefined)}
+                >
+                  <Chevron open={isOpen} />
+                  <KindIcon name="collections" />
+                  <span className="nm">{c.name}</span>
+                  {env && (
+                    <span className="meta" title="Active environment">
+                      {env.name}
+                    </span>
+                  )}
+                  {b && <CountBadge n={b.queries.length} />}
+                  <RowAddButton onClick={() => void newQuery(c.id)} label={`New query in ${c.name}`} />
+                  <RowMenuButton onClick={(e) => showMenu(e, collectionMenu(c))} label={`Actions for collection ${c.name}`} />
+                </button>
+              )}
               {isOpen && b && (
                 <>
                   {renderLevel(b, undefined, 1)}

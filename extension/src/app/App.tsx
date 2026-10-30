@@ -27,6 +27,16 @@ function useRoute(): Route {
   return route;
 }
 
+/** "report.csv" from a file URL, for the tab title before the file opens. */
+function fileTitle(src: string): string {
+  const last = src.split(/[?#]/)[0]!.split("/").pop() ?? "";
+  try {
+    return decodeURIComponent(last) || "File";
+  } catch {
+    return last || "File";
+  }
+}
+
 export function App() {
   const route = useRoute();
   // Bumped after a backup restore so Home reloads its lists.
@@ -43,9 +53,14 @@ export function App() {
   // Copies saved data to the runner a few seconds after each change (§3.16).
   useEffect(() => startAutoBackup(), []);
 
+  // Pages that show one thing (a connection, a file, a workflow) title the tab with its name
+  // themselves once it's loaded; this only sets the fixed ones, plus a placeholder while loading.
   useEffect(() => {
-    document.title =
-      route.name === "home" ? "dbui · Home" : route.name === "settings" ? "dbui · Settings" : route.name === "file" ? "dbui · File" : "dbui";
+    const fixed: Partial<Record<Route["name"], string>> = { home: "Chrome DB Viewer", settings: "Settings", "download-prompt": "Open in viewer?" };
+    const title = fixed[route.name];
+    if (title) document.title = title;
+    else if (route.name === "file" && route.src) document.title = fileTitle(route.src);
+    else document.title = "Loading…";
   }, [route]);
 
   let page;

@@ -7,7 +7,7 @@ import type { Collection, Environment, Scripts, VarDef, VarType } from "../../co
 import { formatVarInput, parseVarInput } from "../../collections/params";
 import { saveCollection } from "../../collections/store";
 import { listConnections, type SavedConnection } from "../lib/connections";
-import { Modal } from "../components/ui";
+import { InlineCreate, Modal } from "../components/ui";
 import * as db from "../store/db";
 
 const TYPES: VarType[] = ["string", "number", "date", "boolean", "list", "json"];
@@ -109,18 +109,17 @@ export function CollectionSettings(props: { collection: Collection; onClose: () 
             </option>
           ))}
         </select>
-        <button
-          className="btn"
-          onClick={() => {
-            const name = prompt("Environment name", c.environments.length ? "prod" : "dev");
-            if (!name) return;
+        <InlineCreate
+          label="+ Environment"
+          placeholder="Environment name"
+          initial={c.environments.length ? "prod" : "dev"}
+          ariaLabel="New environment name"
+          onCreate={(name) => {
             const e: Environment = { id: db.uid("env_"), name, values: {} };
             setC({ ...c, environments: [...c.environments, e], activeEnvironmentId: c.activeEnvironmentId ?? e.id });
             setEnvId(e.id);
           }}
-        >
-          + Environment
-        </button>
+        />
         {env && (
           <>
             <button className="btn" disabled={c.activeEnvironmentId === env.id} onClick={() => setC({ ...c, activeEnvironmentId: env.id })}>

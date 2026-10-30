@@ -13,7 +13,7 @@ import { navigate, openConnectionTab } from "../lib/route";
 import { classifyRunnerError, runnerDrivers, type RunnerStatus } from "../lib/runner";
 import * as db from "../store/db";
 import { secretStore, sessionSecrets } from "../store/secrets";
-import { CommandPalette, Modal, useToast, type PaletteCommand } from "../components/ui";
+import { CommandPalette, Modal, useToast, type PaletteCommand, type Toast } from "../components/ui";
 import { RunnerCard } from "../home/RunnerCard";
 import { ConnectionForm, EnginePicker } from "../home/NewConnection";
 import type { FormState } from "../lib/connForm";
@@ -101,7 +101,7 @@ export function ConnectionTab({ connectionId }: { connectionId: string }) {
       const cfg = await loadConnection(connectionId).catch(() => undefined);
       if (cancelled) return;
       if (!cfg) return setPhase({ kind: "missing" });
-      document.title = `${cfg.name} · dbui`;
+      document.title = cfg.name;
       if (needsSecret(cfg)) {
         const secret = await resolveSecret(cfg);
         if (cancelled) return;
@@ -241,7 +241,7 @@ function PasswordPrompt(props: { cfg: SavedConnection; error?: string; onSubmit:
   );
 }
 
-function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabilities; version?: string; toast: (m: string) => void; onCfg: (c: SavedConnection) => void }) {
+function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabilities; version?: string; toast: Toast; onCfg: (c: SavedConnection) => void }) {
   const { cfg, driver, caps } = props;
   const [readOnly, setReadOnly] = useState(cfg.readOnly);
   const [pending, setPendingState] = useState<PendingState>(emptyPending);

@@ -24,13 +24,18 @@ export const COMPRESSION_EXTENSIONS: readonly string[] = PREVIEW_GROUPS.compress
 
 export const DATA_RULE_ID = 1;
 /**
- * Ids of rules older versions installed: 2 redirected images/video to a media viewer, 3 set
- * Cross-Origin-Resource-Policy on image/media responses for it. Never added any more, but still
- * removed on every sync so existing installs get them cleared.
+ * Rule 3 sets `Cross-Origin-Resource-Policy: cross-origin` on image and media responses that
+ * dbui's own pages request. Extension pages run with COEP `require-corp` (manifest), so Chrome
+ * blocks a cross-origin `<video>`/`<img>` whose server sends neither CORS nor CORP, which would
+ * stop media.html (src/preview/media.ts) playing a signed URL. Scoped by initiatorDomains to our
+ * extension id, so pages you browse are never touched. Not tied to the preview setting.
  */
-export const LEGACY_RULE_IDS = [2, 3];
+export const CORP_RULE_ID = 3;
+/** Id an older version used to redirect image/video URLs to a media viewer. Never added any more,
+ *  but still removed on every sync so existing installs get it cleared. */
+export const LEGACY_RULE_IDS = [2];
 /** Every id syncPreviewRules removes before adding the current rules. */
-export const PREVIEW_RULE_IDS = [DATA_RULE_ID, ...LEGACY_RULE_IDS];
+export const PREVIEW_RULE_IDS = [DATA_RULE_ID, ...LEGACY_RULE_IDS, CORP_RULE_ID];
 
 interface CheckedExtensions {
   data: string[];
@@ -91,7 +96,23 @@ function redirectRule(id: number, regexFilter: string, target: string, excluded:
   };
 }
 
-/** The dynamic rules for these settings: rule 1 sends data files to app.html. Returns [] when the feature is off. */
+/** Rule 3 (see CORP_RULE_ID), or null when the extension id can't be read from the base URL. */
+export function corpRule(extensionBaseUrl: string): chrome.declarativeNetRequest.Rule | null {
+  // The extension id is the host of chrome-extension://<id>/.
+  const extensionId = extensionBaseUrl.replace(/^[a-z-]+:\/\//i, "").split("/")[0] ?? "";
+  if (!extensionId) return null;
+  return {
+    id: CORP_RULE_ID,
+    priority: 1,
+    condition: { initiatorDomains: [extensionId], resourceTypes: ["image", "media"] },
+    action: {
+      type: "modifyHeaders",
+      responseHeaders: [{ header: "Cross-Origin-Resource-Policy", operation: "set", value: "cross-origin" }],
+    },
+  };
+}
+
+/** The data-file rule for these settings: rule 1 sends data files to app.html. Returns [] when the feature is off. */
 export function buildRules(settings: PreviewSettings, extensionBaseUrl: string): chrome.declarativeNetRequest.Rule[] {
   if (!settings.enabled) return [];
   const base = extensionBaseUrl.endsWith("/") ? extensionBaseUrl : `${extensionBaseUrl}/`;

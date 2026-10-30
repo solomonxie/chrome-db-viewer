@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <script src="/theme-boot.js"></script>
+    <title>Preview</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
+  </head>
+  <body class="media">
+    <!-- Image/video viewer for downloads that are media (src/preview/media.ts). See src/media/main.ts. -->
+    <header class="media-bar">
+      <span class="media-name" id="name"></span>
+      <span class="media-info" id="info"></span>
+      <button type="button" class="btn ghost" id="fit" hidden>Actual size</button>
+      <button type="button" class="btn primary" id="download">Download</button>
+    </header>
+    <main class="media-stage" id="stage"></main>
+    <p class="media-failed" id="failed" role="alert" hidden>Couldn't load this file here (the link may have expired or need a sign-in). Use Download to save it instead.</p>
+    <script type="module" src="/src/media/main.ts"></script>
+  </body>
+</html>

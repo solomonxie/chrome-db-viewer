@@ -28,7 +28,7 @@ export interface PendingDownloadPrompt {
 }
 
 export type DownloadDecision =
-  | { prompt: false; reason: "disabled" | "excluded" | "no-match" | "extension" }
+  | { prompt: false; reason: "disabled" | "excluded" | "no-match" | "extension" | "local" }
   | { prompt: true; kind: PreviewKind; filename: string };
 
 function baseName(path: string): string {
@@ -53,6 +53,8 @@ export function decideDownloadPrompt(item: chrome.downloads.DownloadItem, settin
     return { prompt: false, reason: "extension" };
   }
   const url = item.finalUrl || item.url;
+  // A local file dropped onto Chrome: localFileToOpen opens the original instead (no prompt, no copy).
+  if (/^file:/i.test(url)) return { prompt: false, reason: "local" };
   if (isExcludedHost(url, settings) || (item.referrer && isExcludedHost(item.referrer, settings))) {
     return { prompt: false, reason: "excluded" };
   }
@@ -60,6 +62,18 @@ export function decideDownloadPrompt(item: chrome.downloads.DownloadItem, settin
   const kind = (filename ? classifyFilename(filename, settings) : null) ?? classifyUrl(url, settings) ?? classifyMime(item.mime ?? "", settings);
   if (!kind) return { prompt: false, reason: "no-match" };
   return { prompt: true, kind, filename: filename || "download" };
+}
+
+/**
+ * A data file Chrome is about to copy from file:// into Downloads (you dropped it onto a tab):
+ * the viewer URL to open instead, or null. Called from downloads.onDeterminingFilename, before
+ * anything is written; the caller cancels the copy.
+ */
+export function localFileToOpen(item: Pick<chrome.downloads.DownloadItem, "url" | "finalUrl" | "byExtensionId">, settings: PreviewSettings, ownExtensionId?: string): string | null {
+  const url = item.finalUrl || item.url;
+  if (!settings.enabled || !/^file:/i.test(url) || (ownExtensionId && item.byExtensionId === ownExtensionId)) return null;
+  const name = urlFileName(url);
+  return name && classifyFilename(name, settings) ? viewerUrlFor(url) : null;
 }
 
 function isRefetchable(url: string): boolean {

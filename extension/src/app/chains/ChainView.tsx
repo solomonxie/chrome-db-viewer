@@ -61,7 +61,7 @@ export function ChainView({ chainId }: { chainId: string }) {
       if (cancelled) return;
       setChain(c ?? null);
       if (!c) return;
-      document.title = `dbui · ${c.name}`;
+      document.title = c.name;
       const [l, cs] = await Promise.all([chainLibrary(c.collectionId), listConnections()]);
       if (cancelled) return;
       setLib(l);
@@ -188,10 +188,15 @@ export function ChainView({ chainId }: { chainId: string }) {
       return { ...c, steps };
     });
 
+  // Deleting is immediate; Undo in the toast puts the step back where it was.
   const removeStep = (step: ChainStep) => {
-    if (!confirmDelete(step)) return;
+    const at = chain!.steps.findIndex((s) => s.id === step.id);
     clearCache(chain!.id, step.name);
     update((c) => ({ ...c, steps: c.steps.filter((s) => s.id !== step.id) }));
+    toast(`Deleted step "${step.name}"`, {
+      label: "Undo",
+      run: () => update((c) => (c.steps.some((s) => s.id === step.id) ? c : { ...c, steps: [...c.steps.slice(0, at), step, ...c.steps.slice(at)] })),
+    });
   };
 
   const doRun = async (opts: { mode: "all" | "from" | "only"; step?: string; allowOverLimit?: boolean }) => {
@@ -417,10 +422,6 @@ export function ChainView({ chainId }: { chainId: string }) {
       )}
     </div>
   );
-}
-
-function confirmDelete(step: ChainStep): boolean {
-  return typeof window.confirm !== "function" || window.confirm(`Delete step "${step.name}"?`);
 }
 
 /** Drops empty optional fields so the stored step stays small. */

@@ -30,7 +30,8 @@
     "identity",
     "storage",
     "unlimitedStorage",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequestWithHostAccess",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://bigquery.googleapis.com/*",

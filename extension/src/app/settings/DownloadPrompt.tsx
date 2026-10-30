@@ -11,7 +11,7 @@ export function DownloadPrompt({ downloadId }: { downloadId: number }) {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Open in dbui?";
+    document.title = "Open in viewer?";
     getPendingDownloadPrompt(downloadId).then(setP, () => setP(null));
   }, [downloadId]);
 

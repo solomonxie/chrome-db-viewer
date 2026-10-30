@@ -3,7 +3,7 @@
 // Several statements run in order with one result tab each, stopping at the first error. A tab
 // bound to a named query renders the template first and splits the rendered SQL.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { collect, type Column, type CostEstimate, type ExecuteSummary } from "@core/types";
 import { DataGrid, type GridCursor } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
@@ -13,6 +13,7 @@ import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { findDestructive, isWriteStatement } from "../lib/safety";
 import { MOD, useKeys } from "../lib/keys";
 import { formatRange } from "../lib/sqlFormat";
+import { connectionSource } from "../lib/completion";
 import type { ConnCtx, DetailsSource } from "./model";
 import { useResult } from "./useResult";
 import type { Cell } from "@core/types";
@@ -331,6 +332,8 @@ export function QueryView(props: {
   // Height of the editor box (text area only); the results take the rest.
   const editorPane = usePaneWidth("dbui.pane.editor", 220, 80, 900);
   const Editor = props.namedQueryId ? TemplateEditor : SqlEditor;
+  // Autocomplete over this connection's tree (schemas, tables, columns), cached per tab.
+  const completion = useMemo(() => ({ source: connectionSource(ctx.driver), quote: (n: string) => ctx.driver.dialect.quoteIdent(n) }), [ctx.driver]);
 
   return (
     <div className="center" style={{ display: props.active ? undefined : "none" }}>
@@ -339,6 +342,7 @@ export function QueryView(props: {
           ref={ta}
           value={props.sql}
           onChange={props.onSql}
+          {...(props.namedQueryId ? {} : { completion })}
           placeholder={
             props.namedQueryId
               ? `SELECT * FROM {{ table | ident }} WHERE day >= {{ start_date | sql }}\n\n${MOD}↵ renders and runs, ${MOD}S saves the template`

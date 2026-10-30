@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { duckdbDialect } from "@core/sql";
-import { cycleSort, equalsCondition, filteredSheet, frequencySheet, sheetSql, sourceSheet, summarySheet } from "../../src/app/file/sheets";
+import { cycleSort, equalsCondition, filteredSheet, frequencySheet, querySheet, sheetSql, sourceSheet, summarySheet } from "../../src/app/file/sheets";
 
 const src = sourceSheet("orders.csv");
 
@@ -36,4 +36,12 @@ test("cycleSort goes asc, desc, off", () => {
   expect(s).toEqual([{ column: "a", dir: "desc" }]);
   expect(cycleSort(s, "a", false)).toEqual([]);
   expect(cycleSort([{ column: "a", dir: "asc" }], "b", true)).toEqual([{ column: "a", dir: "asc" }, { column: "b", dir: "asc" }]);
+});
+
+test("a query sheet runs the typed SQL as is and titles itself with a short one-line form", () => {
+  const sql = `SELECT ad_name, count(*)\n  FROM "orders.csv"\n GROUP BY 1 ORDER BY 2 DESC`;
+  const s = querySheet(sql + "\n");
+  expect(sheetSql(s, "orders.csv", duckdbDialect)).toBe(sql);
+  expect(s.title).toBe('SELECT ad_name, count(*) FROM "orders.c…');
+  expect(s.title).toHaveLength(40);
 });

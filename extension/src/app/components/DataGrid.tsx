@@ -1,9 +1,10 @@
 // Virtualised DOM grid: renders only the visible rows. Sticky header with sort, resizable
-// columns, row numbers, row selection, cell cursor, in-place editing and FK arrows.
+// columns (double-click a header edge to fit), row numbers, row selection, cell cursor,
+// in-place editing, FK arrows and an open-link button on http(s) URLs.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import type { Cell, Column } from "@core/types";
-import { cellText } from "../lib/format";
+import { cellText, linkOf } from "../lib/format";
 import { isJsonType, isNumericType } from "../lib/coltypes";
 import type { SortSpec } from "../lib/filters";
 import { Icon } from "./Icon";
@@ -233,6 +234,16 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     window.addEventListener("mouseup", onUp);
   };
 
+  /** Widens (or narrows) a column to its longest value among the first rows, capped at 900px. */
+  const fitColumn = (e: RMouseEvent, col: number) => {
+    e.stopPropagation();
+    const c = p.columns[col]!;
+    let longest = c.name.length + c.type.length + 2;
+    for (let r = 0; r < Math.min(p.rowCount, 1000); r++) longest = Math.max(longest, Math.min(200, cellText(p.value(r, col)).length));
+    const w = Math.min(900, Math.max(60, Math.round(longest * 7.6) + 34));
+    setWidths((ws) => ws.map((x, i) => (i === col ? w : x)));
+  };
+
   const sortOf = (name: string) => {
     const i = p.sort?.findIndex((s) => s.column === name) ?? -1;
     if (i < 0) return null;
@@ -299,6 +310,19 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
           ) : (
             <>
               <span>{cellText(v).slice(0, 500)}</span>
+              {linkOf(v) && (
+                <a
+                  className="cell-link"
+                  href={linkOf(v)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Open ${linkOf(v)} in a new tab`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Icon name="external" className="ico sm" />
+                </a>
+              )}
               {col.references && v !== null && p.onOpenFk && (
                 <button
                   className="fk"
@@ -371,7 +395,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
                     {s.n}
                   </span>
                 )}
-                <span className="rs" onMouseDown={(e) => startResize(e, i)} onClick={(e) => e.stopPropagation()} />
+                <span className="rs" onMouseDown={(e) => startResize(e, i)} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => fitColumn(e, i)} title="Drag to resize, double-click to fit the content" />
               </div>
             );
           })}

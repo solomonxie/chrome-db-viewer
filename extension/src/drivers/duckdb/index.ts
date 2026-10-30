@@ -66,6 +66,31 @@ export interface DuckDeps {
   readFile?: (handleId: string) => Promise<File>;
   /** fetch used for the HEAD size check on URLs and for Arrow files (default: global fetch). */
   fetch?: typeof fetch;
+  /** Reads a file:// URL into a File (default: XHR from the page, see readFileUrl). */
+  readFileUrl?: (url: string, name: string) => Promise<File>;
+}
+
+/**
+ * Reads a file:// URL from the page. DuckDB's worker can't (its synchronous XHR to file:// is
+ * blocked), and fetch() doesn't support the scheme, but an XHR from an extension page does when
+ * "Allow access to file URLs" is on.
+ */
+export function readFileUrl(url: string, name: string): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url);
+    xhr.responseType = "arraybuffer";
+    xhr.onload = () => (xhr.response ? resolve(new File([xhr.response as ArrayBuffer], name)) : reject(fileAccessError(name)));
+    xhr.onerror = () => reject(fileAccessError(name));
+    xhr.send();
+  });
+}
+
+function fileAccessError(name: string): DriverError {
+  return new DriverError(
+    `Chrome didn't let dbui read ${name}. Turn on "Allow access to file URLs" for the extension in chrome://extensions, then reload this tab.`,
+    "file_access",
+  );
 }
 
 /** Facts about the opened data file, for the sheet header. */
@@ -223,11 +248,15 @@ export class DuckDriver implements Driver {
 
     let file: File | undefined;
     let name: string;
-    if (src) name = givenName ?? fileNameOf(src);
-    else {
+    if (src) {
+      name = givenName ?? fileNameOf(src);
+      // A local file (dragged into Chrome, or a finished download) is read here, then handled like a picked file.
+      if (/^file:/i.test(src)) file = await (this.deps.readFileUrl ?? readFileUrl)(src, name);
+    } else {
       file = await this.resolveFile(o);
       name = givenName ?? file.name;
     }
+    const remote = src && !file ? src : undefined;
 
     const forced = typeof o.format === "string" ? (o.format as FileFormat) : undefined;
     const detected = detectFormat(name) ?? (src ? detectFormat(src) : null);
@@ -240,10 +269,10 @@ export class DuckDriver implements Driver {
     }
 
     let size: number | undefined = file?.size;
-    if (src && size === undefined) size = await this.remoteSize(src);
+    if (remote && size === undefined) size = await this.remoteSize(remote);
     aborted(signal);
 
-    const isRemoteText = !!src && format.format !== "parquet" && format.format !== "arrow";
+    const isRemoteText = !!remote && format.format !== "parquet" && format.format !== "arrow";
     if (isRemoteText && size !== undefined && size > REMOTE_WARN_BYTES && o.allowLarge !== true) {
       throw new DriverError(
         `${name} is ${formatBytes(size)}. Reading a remote ${formatLabel(format)} file this big downloads all of it. Download it instead, or open it anyway.`,
@@ -260,13 +289,13 @@ export class DuckDriver implements Driver {
     try {
       if (format.format === "arrow") {
         // DuckDB-WASM has no Arrow-file table function: read the bytes and insert them as a table.
-        const bytes = src ? await this.fetchBytes(src) : new Uint8Array(await file!.arrayBuffer());
+        const bytes = remote ? await this.fetchBytes(remote) : new Uint8Array(await file!.arrayBuffer());
         await conn.insertArrowIPC(bytes, FILE_SHEET_TABLE);
         materialized = true;
       } else {
         const regName = claimFileName(name);
         this.files.push(regName);
-        if (src) await engine.registerFileURL(regName, src);
+        if (remote) await engine.registerFileURL(regName, remote);
         else await engine.registerFile(regName, file!);
         materialized = typeof o.materialize === "boolean" ? o.materialize : size !== undefined && size < MATERIALIZE_LIMIT_BYTES;
         await conn.query(`CREATE ${materialized ? "TABLE" : "VIEW"} ${target} AS SELECT * FROM ${readerSql(regName, format)}`);
@@ -281,7 +310,7 @@ export class DuckDriver implements Driver {
       const r = tableObjects(await conn.query(`SELECT count(*) AS n FROM ${target}`))[0];
       rows = Number(str(r?.n));
     }
-    this.fileInfo = { name, format, size, source: src ? "url" : "file", materialized, rows };
+    this.fileInfo = { name, format, size, source: remote ? "url" : "file", materialized, rows };
   }
 
   private async remoteSize(url: string): Promise<number | undefined> {

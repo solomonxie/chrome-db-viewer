@@ -7,16 +7,13 @@ import mvpWasm from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import mvpWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import ehWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
-import coiWasm from "@duckdb/duckdb-wasm/dist/duckdb-coi.wasm?url";
-import coiWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-coi.worker.js?url";
-import coiPthread from "@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?url";
 // DuckDB extensions, one build per platform, matching the engine version (v1.5.4).
+// No threaded (coi) build: DuckDB's published wasm_threads extensions import non-shared memory,
+// so the threaded engine can't LOAD them ("mismatch in shared state of memory").
 import parquetMvp from "./ext/wasm_mvp/parquet.duckdb_extension.wasm?url";
 import jsonMvp from "./ext/wasm_mvp/json.duckdb_extension.wasm?url";
 import parquetEh from "./ext/wasm_eh/parquet.duckdb_extension.wasm?url";
 import jsonEh from "./ext/wasm_eh/json.duckdb_extension.wasm?url";
-import parquetThreads from "./ext/wasm_threads/parquet.duckdb_extension.wasm?url";
-import jsonThreads from "./ext/wasm_threads/json.duckdb_extension.wasm?url";
 import type { RecordBatch } from "apache-arrow";
 import { DriverError } from "@core/types";
 import { prepareDatabase, type BatchStream, type BundledExtensions, type DuckConn, type DuckEngine } from "./engine";
@@ -24,13 +21,11 @@ import { prepareDatabase, type BatchStream, type BundledExtensions, type DuckCon
 const BUNDLES: duckdb.DuckDBBundles = {
   mvp: { mainModule: mvpWasm, mainWorker: mvpWorker },
   eh: { mainModule: ehWasm, mainWorker: ehWorker },
-  coi: { mainModule: coiWasm, mainWorker: coiWorker, pthreadWorker: coiPthread },
 };
 
 const EXTENSIONS: Record<string, BundledExtensions> = {
   mvp: { parquet: parquetMvp, json: jsonMvp },
   eh: { parquet: parquetEh, json: jsonEh },
-  coi: { parquet: parquetThreads, json: jsonThreads },
 };
 
 /** Absolute URL, so the worker's synchronous XHR resolves it against the extension origin. */
@@ -129,10 +124,8 @@ export function getBrowserEngine(): Promise<DuckEngine> {
 }
 
 async function startEngine(): Promise<DuckEngine> {
-  // Threads need cross-origin isolation (COOP/COEP in the manifest); selectBundle checks it.
-  const bundles: duckdb.DuckDBBundles = globalThis.crossOriginIsolated ? BUNDLES : { mvp: BUNDLES.mvp, eh: BUNDLES.eh };
-  const bundle = await duckdb.selectBundle(bundles);
-  const kind = bundle.mainModule === coiWasm ? "coi" : bundle.mainModule === ehWasm ? "eh" : "mvp";
+  const bundle = await duckdb.selectBundle(BUNDLES);
+  const kind = bundle.mainModule === ehWasm ? "eh" : "mvp";
   const worker = new Worker(bundle.mainWorker!);
   const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker);

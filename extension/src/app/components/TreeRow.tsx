@@ -1,7 +1,7 @@
 // Presentational bits shared by the left-pane trees (Items, Collections, Workflows):
-// a hover-revealed chevron, kind icons, and the folding pane sections.
+// a hover-revealed chevron, kind icons, the folding pane sections and the inline rename field.
 
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Icon, objectIcon, type IconName } from "./Icon";
 
 /** Expand/collapse chevron; faint until the row is hovered. Renders an empty slot for leaves. */
@@ -50,6 +50,40 @@ export function PaneSections<K extends string>(props: { sections: (PaneTab<K> & 
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Inline rename field that takes a tree row's label place (rows are buttons, so this renders as
+ * a sibling over the row). Enter or blur saves, Esc cancels. Starts with the text selected.
+ * An empty or unchanged name keeps the old one.
+ */
+export function InlineName(props: { value: string; label: string; indent?: number; onDone: (name: string | null) => void }) {
+  const [text, setText] = useState(props.value);
+  const done = useRef(false);
+  const finish = (name: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    const t = name?.trim();
+    props.onDone(t && t !== props.value ? t : null);
+  };
+  return (
+    <div className="node inline-name" style={{ paddingLeft: props.indent }}>
+      <input
+        className="input"
+        value={text}
+        aria-label={props.label}
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") finish(text);
+          else if (e.key === "Escape") finish(null);
+        }}
+        onBlur={() => finish(text)}
+      />
     </div>
   );
 }

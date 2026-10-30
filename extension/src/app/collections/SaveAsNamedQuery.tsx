@@ -8,7 +8,7 @@ import type { Collection, Folder, NamedQuery } from "../../collections/model";
 import { applySuggestions, suggestVariables, VAR_NAME, type LiteralSuggestion } from "../../collections/literals";
 import type { DialectName } from "../../collections/render";
 import { createCollection, createFolder, createQuery, folderPath, listCollections, loadBundle } from "../../collections/store";
-import { Modal } from "../components/ui";
+import { InlineCreate, Modal } from "../components/ui";
 
 export const SAVED_QUERIES = "Saved queries";
 const NEW_SAVED = "__saved__";
@@ -90,23 +90,18 @@ export function SaveAsNamedQuery(props: {
     }
   };
 
-  const newCollection = async () => {
-    const n = prompt("New collection name", SAVED_QUERIES);
-    if (!n) return;
+  const newCollection = async (n: string) => {
     const c = await createCollection(n);
     setCollections((cs) => [...(cs ?? []), c]);
     setCollectionId(c.id);
   };
-  const newFolder = async () => {
+  const newFolder = async (n: string) => {
     let cid = collectionId;
     if (cid === NEW_SAVED) {
       const c = await createCollection(SAVED_QUERIES);
       setCollections((cs) => [...(cs ?? []), c]);
       cid = c.id;
     }
-    const parent = folderId ? folderPath(folderId, folders) : "";
-    const n = prompt(parent ? `New subfolder in ${parent.replace(/\//g, " / ")}` : "New folder name", "New folder");
-    if (!n) return;
     const f = await createFolder(cid, n, folderId || undefined);
     setFolders((fs) => [...fs, f]);
     setFolderId(f.id);
@@ -147,9 +142,7 @@ export function SaveAsNamedQuery(props: {
                 </option>
               ))}
             </select>
-            <button className="btn" onClick={() => void newCollection()}>
-              New…
-            </button>
+            <InlineCreate label="New…" placeholder="Collection name" initial={SAVED_QUERIES} ariaLabel="New collection name" onCreate={newCollection} />
           </span>
         </label>
         <label>
@@ -163,9 +156,14 @@ export function SaveAsNamedQuery(props: {
                 </option>
               ))}
             </select>
-            <button className="btn" onClick={() => void newFolder()} title={folderId ? "New subfolder inside the selected folder" : "New folder"}>
-              {folderId ? "New subfolder…" : "New folder…"}
-            </button>
+            <InlineCreate
+              label={folderId ? "New subfolder…" : "New folder…"}
+              title={folderId ? `New subfolder inside ${folderPath(folderId, folders).replace(/\//g, " / ")}` : "New folder"}
+              placeholder="Folder name"
+              initial="New folder"
+              ariaLabel="New folder name"
+              onCreate={newFolder}
+            />
           </span>
         </label>
       </div>

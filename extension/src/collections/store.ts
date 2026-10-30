@@ -290,9 +290,14 @@ export async function createCollection(name: string, partial: Partial<Collection
   return saveCollection(c);
 }
 
-export async function deleteCollection(id: string): Promise<void> {
+/** Undoes a delete: writes back exactly what it removed, secret values included. */
+export type Restore = () => Promise<void>;
+
+export async function deleteCollection(id: string): Promise<Restore> {
   // Workflows whose home this was are kept; their view offers to pick another collection.
   const [folders, queries, row] = await Promise.all([db.byCollection("folders", id), db.byCollection("namedQueries", id), db.get("collections", id)]);
+  const saved = row ? await fillCollectionSecrets(row) : undefined;
+  const savedQueries = await Promise.all(queries.map(fillQuerySecrets));
   for (const q of queries) await deleteQuery(q.id);
   for (const f of folders) await db.del("folders", f.id);
   if (row) {
@@ -300,6 +305,11 @@ export async function deleteCollection(id: string): Promise<void> {
     for (const e of row.environments) for (const v of row.vars) if (v.secret) await forgetSecret(secretRef(id, `env:${e.id}`, v.name));
   }
   await db.del("collections", id);
+  return async () => {
+    if (saved) await db.put("collections", await stashCollectionSecrets(saved));
+    for (const f of folders) await db.put("folders", f);
+    for (const q of savedQueries) await saveQuery(q);
+  };
 }
 
 export async function createFolder(collectionId: string, name: string, parentId?: string): Promise<Folder> {
@@ -313,13 +323,26 @@ export async function saveFolder(f: Folder): Promise<void> {
 }
 
 /** Deletes a folder; its queries and subfolders move up to the parent. */
-export async function deleteFolder(id: string): Promise<void> {
+export async function deleteFolder(id: string): Promise<Restore> {
   const f = await db.get("folders", id);
-  if (!f) return;
+  if (!f) return async () => {};
   const [folders, queries] = await Promise.all([db.byCollection("folders", f.collectionId), db.byCollection("namedQueries", f.collectionId)]);
-  for (const sub of folders.filter((x) => x.parentId === id)) await db.put("folders", { ...sub, parentId: f.parentId });
-  for (const q of queries.filter((x) => x.folderId === id)) await db.put("namedQueries", { ...q, folderId: f.parentId });
+  const subs = folders.filter((x) => x.parentId === id);
+  const inside = queries.filter((x) => x.folderId === id);
+  for (const sub of subs) await db.put("folders", { ...sub, parentId: f.parentId });
+  for (const q of inside) await db.put("namedQueries", { ...q, folderId: f.parentId });
   await db.del("folders", id);
+  return async () => {
+    await db.put("folders", f);
+    for (const sub of subs) {
+      const now = await db.get("folders", sub.id);
+      if (now) await db.put("folders", { ...now, parentId: id });
+    }
+    for (const q of inside) {
+      const now = await db.get("namedQueries", q.id);
+      if (now) await db.put("namedQueries", { ...now, folderId: id });
+    }
+  };
 }
 
 /** A name that doesn't clash with `taken`: "name", "name 2", "name 3" … */
@@ -353,10 +376,14 @@ export async function loadQuery(id: string): Promise<NamedQuery | undefined> {
   return q ? fillQuerySecrets(q) : undefined;
 }
 
-export async function deleteQuery(id: string): Promise<void> {
+export async function deleteQuery(id: string): Promise<Restore> {
   const q = await db.get("namedQueries", id);
+  const saved = q ? await fillQuerySecrets(q) : undefined;
   if (q) for (const v of q.vars) if (v.secret) await forgetSecret(secretRef(q.collectionId, `q:${q.id}`, v.name));
   await db.del("namedQueries", id);
+  return async () => {
+    if (saved) await saveQuery(saved);
+  };
 }
 
 /** Moves a query to a folder (undefined = top level), renaming it if the name is taken there. */

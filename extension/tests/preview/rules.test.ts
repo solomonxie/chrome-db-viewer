@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { buildRules, classifyFilename, classifyMime, classifyUrl, dataRegex, LEGACY_RULE_IDS, normalizeDomain, PREVIEW_GROUPS, PREVIEW_RULE_IDS } from "../../src/preview/rules";
+import { buildRules, classifyFilename, classifyMime, classifyUrl, corpRule, CORP_RULE_ID, dataRegex, LEGACY_RULE_IDS, normalizeDomain, PREVIEW_GROUPS, PREVIEW_RULE_IDS } from "../../src/preview/rules";
 import { DEFAULT_PREVIEW_SETTINGS, type PreviewSettings } from "../../src/preview/settings";
 
 const BASE = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
@@ -56,9 +56,17 @@ test("the settings groups hold data formats only", () => {
   expect(Object.keys(PREVIEW_GROUPS)).toEqual(["tables", "jsonLines", "columnar", "databases", "json", "compressed"]);
 });
 
-test("legacy rule ids 2 and 3 are still in the removal list", () => {
-  expect(LEGACY_RULE_IDS).toEqual([2, 3]);
+test("the old media redirect id 2 is still in the removal list, with the data and CORP rules", () => {
+  expect(LEGACY_RULE_IDS).toEqual([2]);
   expect(PREVIEW_RULE_IDS).toEqual([1, 2, 3]);
+});
+
+test("the CORP rule only touches image/media requests made by dbui's own pages", () => {
+  const rule = corpRule(BASE)!;
+  expect(rule.id).toBe(CORP_RULE_ID);
+  expect(rule.condition).toEqual({ initiatorDomains: [new URL(BASE).host], resourceTypes: ["image", "media"] });
+  expect(rule.action).toEqual({ type: "modifyHeaders", responseHeaders: [{ header: "Cross-Origin-Resource-Policy", operation: "set", value: "cross-origin" }] });
+  expect(corpRule("")).toBeNull();
 });
 
 test("buildRules ignores unknown extensions so nothing unescaped reaches the regex", () => {

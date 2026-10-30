@@ -26,8 +26,13 @@ export async function saveChain(c: Chain): Promise<Chain> {
   return row;
 }
 
-export async function deleteChain(id: string): Promise<void> {
+/** Deletes a workflow; the returned function puts it back (Undo). */
+export async function deleteChain(id: string): Promise<() => Promise<void>> {
+  const row = await getChainRow(id);
   await deleteChainRow(id);
+  return async () => {
+    if (row) await putChainRow(row);
+  };
 }
 
 export async function chainsFor(collectionId: string): Promise<Chain[]> {

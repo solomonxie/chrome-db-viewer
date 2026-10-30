@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { decideDownloadPrompt, handleDownloadCreated, openDownloadInDbui } from "../../src/preview/downloads";
+import { decideDownloadPrompt, handleDownloadCreated, localFileToOpen, openDownloadInDbui } from "../../src/preview/downloads";
 import { syncPreviewRules } from "../../src/preview/index";
 import { DEFAULT_PREVIEW_SETTINGS, addExcludedDomain, type PreviewSettings } from "../../src/preview/settings";
 
@@ -125,21 +125,22 @@ test("openDownloadInDbui waits for a blob: download to finish and opens the file
   expect(listeners).toHaveLength(0);
 });
 
-test("syncPreviewRules adds rule 1, always removes legacy rules 2 and 3, and clears everything when off or without host access", async () => {
+test("syncPreviewRules adds rule 1 and the media CORP rule 3, always removes legacy rule 2, and keeps only rule 3 when off or without host access", async () => {
   const { c } = stubChrome();
   await syncPreviewRules(on);
   expect(c.permissions.contains).toHaveBeenCalledWith({ origins: ["https://*/*", "http://*/*"] });
   const first = c.declarativeNetRequest.updateDynamicRules.mock.calls[0] as unknown as [chrome.declarativeNetRequest.UpdateRuleOptions];
   expect(first[0].removeRuleIds).toEqual([1, 2, 3]);
-  expect(first[0].addRules?.map((r) => r.id)).toEqual([1]);
+  expect(first[0].addRules?.map((r) => r.id)).toEqual([1, 3]);
   expect(first[0].addRules?.[0]?.action.redirect?.regexSubstitution).toBe(`${EXT}app.html?src=\\0`);
 
+  const onlyCorp = (calls: unknown[][]) => (calls.at(-1)![0] as chrome.declarativeNetRequest.UpdateRuleOptions).addRules?.map((r) => r.id);
   await syncPreviewRules(off);
-  expect(c.declarativeNetRequest.updateDynamicRules).toHaveBeenLastCalledWith({ removeRuleIds: [1, 2, 3], addRules: [] });
+  expect(onlyCorp(c.declarativeNetRequest.updateDynamicRules.mock.calls)).toEqual([3]);
 
-  stubChrome({ granted: false });
+  const again = stubChrome({ granted: false });
   await syncPreviewRules(on);
-  expect(chrome.declarativeNetRequest.updateDynamicRules).toHaveBeenLastCalledWith({ removeRuleIds: [1, 2, 3], addRules: [] });
+  expect(onlyCorp(again.c.declarativeNetRequest.updateDynamicRules.mock.calls)).toEqual([3]);
 });
 
 test("addExcludedDomain adds the hostname once to previewSettings", async () => {
@@ -148,4 +149,16 @@ test("addExcludedDomain adds the hostname once to previewSettings", async () => 
   expect(await addExcludedDomain("https://files.example.com/x")).toBe("files.example.com");
   expect((local.previewSettings as PreviewSettings).excludedDomains).toEqual(["files.example.com"]);
   expect((local.previewSettings as PreviewSettings).enabled).toBe(true);
+});
+
+test("a data file dropped onto Chrome opens from where it is; other local files and http downloads don't", () => {
+  stubChrome();
+  const settings = { ...DEFAULT_PREVIEW_SETTINGS, enabled: true };
+  const dropped = item({ url: "file:///Users/me/Downloads/flashcards_onboarding_202610.csv" });
+  expect(localFileToOpen(dropped, settings, "self")).toBe(`${EXT}app.html?src=${encodeURIComponent("file:///Users/me/Downloads/flashcards_onboarding_202610.csv")}#file`);
+  expect(decideDownloadPrompt(dropped, settings)).toEqual({ prompt: false, reason: "local" });
+  expect(localFileToOpen(item({ url: "file:///Users/me/notes.txt" }), settings, "self")).toBeNull();
+  expect(localFileToOpen(item({ url: "https://x.test/a.csv" }), settings, "self")).toBeNull();
+  expect(localFileToOpen(dropped, { ...settings, enabled: false }, "self")).toBeNull();
+  expect(localFileToOpen({ ...dropped, byExtensionId: "self" }, settings, "self")).toBeNull();
 });

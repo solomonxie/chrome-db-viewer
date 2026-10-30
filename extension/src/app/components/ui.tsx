@@ -73,22 +73,42 @@ export function TypedConfirm(props: {
   );
 }
 
-const ToastCtx = createContext<(msg: string) => void>(() => {});
+/** A button in the toast, e.g. Undo after a delete. The toast stays up longer when it has one. */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+export type Toast = (msg: string, action?: ToastAction) => void;
+
+const ToastCtx = createContext<Toast>(() => {});
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; action?: ToastAction } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const show = useCallback((m: string) => {
-    setMsg(m);
+  const show = useCallback<Toast>((text, action) => {
+    setMsg({ text, action });
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setMsg(null), 2800);
+    timer.current = setTimeout(() => setMsg(null), action ? 6000 : 2800);
   }, []);
   return (
     <ToastCtx.Provider value={show}>
       {children}
       {msg && (
         <div className="toast" role="status">
-          {msg}
+          {msg.text}
+          {msg.action && (
+            <button
+              className="toast-action"
+              onClick={() => {
+                const run = msg.action!.run;
+                clearTimeout(timer.current);
+                setMsg(null);
+                run();
+              }}
+            >
+              {msg.action.label}
+            </button>
+          )}
         </div>
       )}
     </ToastCtx.Provider>
@@ -252,4 +272,53 @@ export function Highlight({ text, needle }: { text: string; needle: string }) {
   }
   out.push(text.slice(i));
   return <>{out}</>;
+}
+
+/**
+ * A "New …" button that turns into a name field in place: Enter or the ✓ creates, Esc or ✕
+ * cancels. Used where a native prompt() used to ask for a name.
+ */
+export function InlineCreate(props: { label: string; placeholder: string; initial?: string; ariaLabel: string; onCreate: (name: string) => void | Promise<void>; title?: string }) {
+  const [text, setText] = useState<string | null>(null);
+  if (text === null) {
+    return (
+      <button type="button" className="btn" title={props.title} onClick={() => setText(props.initial ?? "")}>
+        {props.label}
+      </button>
+    );
+  }
+  const create = () => {
+    const name = text.trim();
+    setText(null);
+    if (name) void props.onCreate(name);
+  };
+  return (
+    <span className="inline-create">
+      <input
+        className="input"
+        autoFocus
+        value={text}
+        placeholder={props.placeholder}
+        aria-label={props.ariaLabel}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            create();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setText(null);
+          }
+        }}
+      />
+      <button type="button" className="btn icon" onClick={create} disabled={!text.trim()} aria-label="Create" title="Create (Enter)">
+        ✓
+      </button>
+      <button type="button" className="btn icon ghost" onClick={() => setText(null)} aria-label="Cancel" title="Cancel (Esc)">
+        ✕
+      </button>
+    </span>
+  );
 }

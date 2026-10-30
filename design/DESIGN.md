@@ -87,7 +87,7 @@ Without the runner, those two connection types show an "Install dbui runner" car
   // The preview redirect can only land on a web-accessible page (§3.12). Only app.html.
   "web_accessible_resources": [{ "resources": ["app.html"], "matches": ["<all_urls>"] }],
   "oauth2": { "client_id": "<id>.apps.googleusercontent.com", "scopes": ["https://www.googleapis.com/auth/bigquery"] },
-  // WASM needs 'wasm-unsafe-eval'. Cross-origin isolation enables DuckDB-WASM threads.
+  // WASM needs 'wasm-unsafe-eval'. Cross-origin isolation gives SQLite-WASM SharedArrayBuffer.
   "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
   "cross_origin_embedder_policy": { "value": "require-corp" },
   "cross_origin_opener_policy": { "value": "same-origin" }
@@ -376,7 +376,9 @@ X-ClickHouse-Key: ••••••
   connection or a data file, so it doesn't slow down the rest of the extension.
 - Open a `.duckdb` file through the file picker. In the browser it opens **read-only**;
   for read-write, use the runner, or copy it into browser storage (OPFS) as a scratch database.
-- With cross-origin isolation (manifest keys in §2) DuckDB-WASM uses multiple threads.
+- DuckDB-WASM runs single-threaded (the `eh` build, `mvp` as fallback). The threaded `coi` build
+  is not used: the published `wasm_threads` parquet/json extensions import non-shared memory and
+  fail to LOAD into it.
   Memory is capped at 4 GB by WebAssembly.
 - Only DuckDB extensions bundled with the build (`json`, `parquet`) are available in the
   browser, because MV3 forbids loading code from the network.
@@ -393,7 +395,9 @@ sheet you drive from the keyboard. It's built on DuckDB, so a 5 GB CSV doesn't n
 fit in memory.
 
 **Opening:** drag a file onto dbui, use **Open file** on Home or in the palette, or pick from
-recent files. Recent files are kept as File System Access handles in IndexedDB; Chrome
+recent files. Dropping a data file onto any Chrome tab opens it here too, read straight from
+where it is (`file://`, needs **Allow access to file URLs**). The copy Chrome would otherwise
+save to Downloads is cancelled before it's written. Recent files are kept as File System Access handles in IndexedDB; Chrome
 asks once per session to read them again.
 
 **Loading:**
@@ -420,7 +424,13 @@ and `Esc` (or `q` with VisiData keys) goes back one.
 | Pivot | Group by one column, spread another into columns, choose the aggregate | palette | `Shift+W` |
 | Row detail | `Enter` opens the row; nested JSONL objects and arrays shown as a tree | `Enter` | `Enter` |
 | Expand nested | Turn a nested JSON column into its own columns | header menu | `(` |
-| SQL | Query the file directly: `SELECT … FROM 'orders.csv'`; join several open files | `⌥T` | — |
+| SQL | The **SQL** button opens a SQL panel at the bottom of the sheet (resizable; a toolbar row with **Run** above the editor, which has autocomplete). The file is the table named there. Any DuckDB SQL runs, and the result opens as a new sheet (`Esc` goes back) | `⌘E`, then `⌘↵` | — |
+| Details | Right-hand pane (same as a connection's) showing the selected rows' fields, read-only; long text wraps and URLs are links. Resizable, and stays open for the next file | `⌘⌥R` | — |
+
+**Cells:** a whole `http(s)://` URL gets a small open-link button that opens it in a new tab.
+No other scheme becomes a link. Double-clicking a column's header edge fits the column to its
+longest value (up to 900px). The top bar wraps its buttons onto a second line when the window
+is narrow.
 
 **Saving:** edits stay in the sheet until `⌘S`, which writes the file back in the same
 format (`COPY … TO`) through the file handle. **Save as** converts between CSV, JSONL and
@@ -433,8 +443,8 @@ the single-letter commands above.
 ### 3.12 Browser preview: opening files from the browser
 
 When this is on, a data file (CSV, JSONL, Parquet …) you open in Chrome shows up in a dbui
-file sheet instead of being downloaded. dbui only opens data files; images and video are
-left to Chrome. It's **on by default**: the all-sites host access the redirect rule needs is
+file sheet instead of being downloaded. Images and video that a site sends as a download go to
+the media viewer instead (*Images and video* below). It's **on by default**: the all-sites host access the redirect rule needs is
 granted at install (§2, *Manifest essentials*), and the background worker installs rule 1 on
 install and on every service-worker start. Settings → **Browser preview** turns it off
 (which removes the rule) and lets you pick the file extensions.
@@ -531,6 +541,26 @@ need DNR response-header conditions. Use them only on Chrome versions that suppo
 check the minimum version before building. The `downloads.onCreated` prompt covers these
 files on older versions.
 
+**Images and video** (`src/preview/media.ts`, `media.html`): when a tab's navigation turns into a
+download of an image or video Chrome can show, such as a GCS signed URL served with
+`Content-Disposition: attachment`, dbui cancels and erases that download and opens
+`media.html?url=…&kind=…&name=…` instead. The page shows the image (fit to the window, with
+**Actual size**) or plays the video, with a **Download** button that saves it the usual way.
+- What counts: an `image/*` or `video/*` type Chrome renders (PNG, JPEG, GIF, WebP, AVIF, BMP,
+  SVG, ICO; MP4, WebM, Ogg, MOV, M4V). If the type is missing or `application/octet-stream`,
+  the file name or URL path decides. TIFF, `blob:`/`data:` URLs and anything else stay downloads.
+- Only navigations count. `webNavigation.onBeforeNavigate` records the URLs tabs navigate to,
+  and `downloads.onDeterminingFilename` acts only on a download whose URL is in that list. That
+  hook is where Chrome already knows the name from `Content-Disposition`, and it runs before any
+  Save As dialog. *Save image as…*, `<a download>` and the viewer's own Download button still
+  save.
+- Rule 3 sets `Cross-Origin-Resource-Policy: cross-origin` on image/media responses requested by
+  dbui's own pages only (`initiatorDomains`). Without it, the extension's COEP `require-corp`
+  would block a cross-origin `<video>` or `<img>`. It's installed whether or not the data-file
+  preview is on. Rule 2 (an older image/video redirect) is still removed on every sync.
+- This used to live in the chrome-llm-mcp extension and moved here, so only one extension
+  handles downloads.
+
 ### 3.13 Safety
 
 - **Environment tag** per connection: `local`, `dev`, `staging`, `production`. Production
@@ -574,6 +604,14 @@ Collection "Ad performance"           variables: client_id, start_date, end_date
   itself or one of its own subfolders. Each collection and folder row shows how many queries
   it holds and a **+** for a new query right there. An empty collection says "Add a query,
   or save one from History".
+- **No browser dialogs.** Names are edited inline in the tree row (Enter or click away saves,
+  Esc cancels; an empty name keeps the old one). **New collection / folder / query** creates
+  the item with a default name ("New collection", "New folder", "new_query") and opens that
+  row for rename with the text selected. **Delete** happens at once, with **Undo** in the toast
+  for 6 seconds. Undo writes back exactly what was removed, including a collection's folders and
+  queries, secret values, and a deleted folder's queries returned to it. Workflows and workflow
+  steps work the same way. The "New …" buttons in the Save dialog and in collection settings
+  turn into an inline name field.
 - **A query** has a name, SQL template, connection (or "the collection's default"),
   description, and variable defaults.
 - **A query can hold several statements** separated by `;`. **Run** (`⌘↵`) runs the
@@ -875,6 +913,13 @@ There's no Chrome side panel.
 **Centre pane**
 - A tab row with **back/forward** (`⌘[` `⌘]`) through tables you've visited, the current table
   name, and a split button that shows two tables side by side.
+- **SQL autocomplete** (query tabs and the file sheet's SQL panel, `src/app/lib/completion.ts`):
+  a list opens at the caret as you type a name. A bare word offers keywords, functions,
+  schemas, tables, and the columns of tables already in `FROM`/`JOIN`. `schema.` lists that
+  schema's tables and views. `table.` or `alias.` (from `FROM t AS a`) lists its columns with
+  their types. ↑/↓ move, Enter or Tab inserts (names are quoted when needed), Esc closes, and
+  `⌃Space` opens the list on demand. Nothing is suggested inside strings or comments. Names come
+  from the same tree the left pane lists (group nodes are skipped) and `describe`, cached per tab.
 - **Filter rows**, toggled with `⌘F`. Each row is `☑ [column ▾] [operator ▾] [value]` with `−`/`+`.
   - The checkbox turns that condition on or off without deleting it.
   - The column list starts with **Raw SQL**, for a free `WHERE` expression.
@@ -1063,7 +1108,7 @@ chrome-db-viewer/
 |---|---|---|
 | M0 | MV3 skeleton (Vite + React), full-page app tab with Home, toolbar click opens or focuses it, CSP/COOP/COEP set, CI build | Extension loads unpacked and opens the app tab |
 | M1 | Grid + **DuckDB-WASM** + **file sheets** (CSV/JSONL/Parquet open, sort, filter, summary, frequency, sheet stack) | Open a 5 GB CSV and get a frequency table without the tab running out of memory |
-| M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support (data files only; images and video are left to Chrome) | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
+| M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support; image and video downloads open in the media viewer | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
 | M2 | **SQLite** and **DuckDB** files, SQL editor (CodeMirror, autocomplete, history), cancel; file sheet editing and save | Query across a `.duckdb` file and two CSVs in one statement |
 | M3 | **BigQuery**: Chrome account, web auth flow, service account key, pasted token, impersonation; dry-run cost guard; job history | Same query works signed in three different ways, with the bytes cap enforced |
 | M4 | **ClickHouse** over HTTP: streaming, cancel, sidebar, structure | Stream 10M rows from ClickHouse Cloud and cancel mid-query |

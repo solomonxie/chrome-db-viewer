@@ -6,15 +6,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Chain, Collection, NamedQuery } from "../../collections/model";
 import { listAllQueries, listCollections, onCollectionsChanged } from "../../collections/store";
-import { ContextMenu, Highlight, Modal, type MenuItem } from "../components/ui";
+import { ContextMenu, Highlight, Modal, type MenuItem, type Toast } from "../components/ui";
 import { Icon } from "../components/Icon";
+import { InlineName } from "../components/TreeRow";
 import { navigate } from "../lib/route";
 import { fmtAgo } from "../lib/format";
 import { allChains, collectionsUsed, createChain, defaultWorkflowCollection, deleteChain, duplicateChain, saveChain, WORKFLOWS_COLLECTION } from "./chainStore";
 
 const openWorkflow = (c: Chain) => navigate({ name: "chain", chainId: c.id }, { newTab: true });
 
-export function WorkflowsList(props: { toast: (m: string) => void; onOpen?: (c: Chain) => void }) {
+export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void }) {
   const [rows, setRows] = useState<Chain[] | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [queries, setQueries] = useState<NamedQuery[]>([]);
@@ -39,21 +40,25 @@ export function WorkflowsList(props: { toast: (m: string) => void; onOpen?: (c: 
   const needle = q.trim().toLowerCase();
   const hits = (rows ?? []).filter((c) => !needle || c.name.toLowerCase().includes(needle) || (colName.get(c.collectionId) ?? "").toLowerCase().includes(needle));
 
-  const rename = async (c: Chain) => {
-    const name = prompt("Rename workflow", c.name);
-    if (name && name !== c.name) await saveChain({ ...c, name });
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const rename = (c: Chain, name: string | null) => {
+    setRenaming(null);
+    if (name) void saveChain({ ...c, name }).catch((e) => props.toast((e as Error).message));
+  };
+  const remove = async (c: Chain) => {
+    try {
+      const restore = await deleteChain(c.id);
+      props.toast(`Deleted workflow "${c.name}"`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
+    } catch (e) {
+      props.toast((e as Error).message);
+    }
   };
   const rowMenu = (c: Chain): MenuItem[] => [
     { label: "Open", onClick: () => open(c) },
-    { label: "Rename…", onClick: () => void rename(c) },
+    { label: "Rename", onClick: () => setRenaming(c.id) },
     { label: "Duplicate", onClick: () => void duplicateChain(c).then((d) => props.toast(`Created "${d.name}"`)) },
     { separator: true, label: "" },
-    {
-      label: "Delete workflow…",
-      onClick: async () => {
-        if (confirm(`Delete workflow "${c.name}"? Its named queries stay in their collection.`)) await deleteChain(c.id);
-      },
-    },
+    { label: "Delete workflow", onClick: () => void remove(c) },
   ];
   const showMenu = (e: React.MouseEvent, items: MenuItem[]) => {
     e.preventDefault();
@@ -83,6 +88,13 @@ export function WorkflowsList(props: { toast: (m: string) => void; onOpen?: (c: 
         {hits.map((c) => {
           const used = collectionsUsed(c, queries);
           const tags = used.length ? used : [c.collectionId];
+          if (renaming === c.id) {
+            return (
+              <div key={c.id} role="listitem" className="wf-row">
+                <InlineName value={c.name} label="Workflow name" indent={8} onDone={(n) => rename(c, n)} />
+              </div>
+            );
+          }
           return (
             <div key={c.id} role="listitem" className="wf-row">
               <button className="hitem wf-item" onClick={() => open(c)} onContextMenu={(e) => showMenu(e, rowMenu(c))} title={`Open ${c.name}`}>

@@ -1,0 +1,9 @@
+/* Media viewer: a thin bar on top, the file centred on a dark stage. */
+body.media { display: grid; grid-template-rows: auto 1fr; height: 100%; background: #111; overflow: hidden; }
+.media-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--chrome); border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.media-name { font-weight: 600; color: var(--fg-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-info { flex: 1; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.media-stage { display: grid; place-items: center; overflow: auto; min-height: 0; padding: 16px; }
+.media-stage img, .media-stage video { max-width: 100%; max-height: calc(100vh - 80px); background: repeating-conic-gradient(#2a2a2a 0 25%, #1f1f1f 0 50%) 0 0 / 16px 16px; }
+.media-stage.actual img { max-width: none; max-height: none; }
+.media-failed { position: fixed; inset: auto 16px 24px; margin: 0 auto; max-width: 520px; padding: 10px 14px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--danger) 18%, var(--chrome)); color: var(--fg-strong); }

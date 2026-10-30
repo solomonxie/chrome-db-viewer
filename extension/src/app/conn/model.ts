@@ -1,5 +1,6 @@
 // State shapes shared by the connection tab's panes.
 
+import type { Toast } from "../components/ui";
 import type { Capabilities, Cell, Column, ConnectionConfig, Driver, ObjectPath, ObjectType, TableSchema } from "@core/types";
 import type { FilterRow, Joiner, SortSpec } from "../lib/filters";
 import type { PendingState } from "../lib/changes";
@@ -36,7 +37,7 @@ export interface ConnCtx {
   /** Real SQL name for a tree path (grouping nodes dropped), quoted. */
   sqlName: (path: ObjectPath) => string;
   describe: (path: ObjectPath) => Promise<TableSchema>;
-  toast: (msg: string) => void;
+  toast: Toast;
   addHistory: (h: { sql: string; ms?: number; rows?: number; error?: string; source: HistorySource }) => void;
   /** Resolves "customers.id" to a tree path for a table, from the tree or a sibling guess. */
   resolveTable: (ref: string, from: ObjectPath) => ObjectPath;

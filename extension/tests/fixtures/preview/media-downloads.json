@@ -1,0 +1,18 @@
+[
+  { "case": "GCS signed URL for a PNG sent as attachment", "expected": "image",
+    "item": { "url": "https://storage.googleapis.com/acme-media/renders/cover%20final.png?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=svc%40acme.iam.gserviceaccount.com%2F20261030%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261030T101500Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=4f1c", "mime": "image/png", "filename": "" } },
+  { "case": "GCS signed URL for an MP4 uploaded without a type", "expected": "video",
+    "item": { "url": "https://storage.googleapis.com/acme-media/clips/demo.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=900&X-Goog-Signature=9ab2", "mime": "application/octet-stream", "filename": "" } },
+  { "case": "redirected download whose final name says MOV", "expected": "video",
+    "item": { "url": "https://example.com/download?id=7", "finalUrl": "https://cdn.example.com/f/7", "mime": "binary/octet-stream", "filename": "/Users/me/Downloads/Screen Recording.mov" } },
+  { "case": "JPEG with a charset on its type", "expected": "image",
+    "item": { "url": "https://example.com/p/1", "mime": "image/jpeg; charset=binary", "filename": "" } },
+  { "case": "a ZIP stays a download", "expected": null,
+    "item": { "url": "https://storage.googleapis.com/acme-media/export.zip?X-Goog-Signature=1", "mime": "application/zip", "filename": "" } },
+  { "case": "a TIFF Chrome can't show stays a download", "expected": null,
+    "item": { "url": "https://example.com/scan.tiff", "mime": "image/tiff", "filename": "" } },
+  { "case": "an image a page saves from a blob stays a download", "expected": null,
+    "item": { "url": "blob:https://example.com/0b6c3f1e-6a1b-4f1e-9d0c-0d6c2b1f9a11", "mime": "image/png", "filename": "chart.png" } },
+  { "case": "a PDF whose URL ends in .png but whose type says PDF stays a download", "expected": null,
+    "item": { "url": "https://example.com/report.png", "mime": "application/pdf", "filename": "" } }
+]

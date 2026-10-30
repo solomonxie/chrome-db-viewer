@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // Drag bar between two panes. Drag, arrow keys (Shift for bigger steps), or double-click to
 // reset. `side` says which neighbour it sizes: "left" grows as you drag right, "right" grows
-// as you drag left, "top" (a horizontal bar between stacked panes) grows as you drag down.
+// as you drag left, "top" (a horizontal bar between stacked panes) grows as you drag down, and
+// "bottom" (a bar above a bottom panel) grows as you drag up.
 
 export interface PaneSize {
   width: number;
@@ -41,21 +42,21 @@ export function usePaneWidth(key: string, defaultWidth: number, min: number, max
 }
 
 export function Splitter(props: {
-  side: "left" | "right" | "top";
+  side: "left" | "right" | "top" | "bottom";
   label: string;
   size: PaneSize;
   onResize: (width: number) => void;
 }) {
   const { side, size, onResize } = props;
   const [dragging, setDragging] = useState(false);
-  const vertical = side === "top";
+  const vertical = side === "top" || side === "bottom";
   const start = useRef({ pos: 0, width: 0 });
 
   useEffect(() => {
     if (!dragging) return;
     const move = (e: PointerEvent) => {
       const d = (vertical ? e.clientY : e.clientX) - start.current.pos;
-      onResize(start.current.width + (side === "right" ? -d : d));
+      onResize(start.current.width + (side === "right" || side === "bottom" ? -d : d));
     };
     const up = () => setDragging(false);
     window.addEventListener("pointermove", move);
@@ -72,8 +73,8 @@ export function Splitter(props: {
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const step = e.shiftKey ? 48 : 16;
-    const grow = side === "top" ? "ArrowDown" : side === "left" ? "ArrowRight" : "ArrowLeft";
-    const shrink = side === "top" ? "ArrowUp" : side === "left" ? "ArrowLeft" : "ArrowRight";
+    const grow = side === "top" ? "ArrowDown" : side === "bottom" ? "ArrowUp" : side === "left" ? "ArrowRight" : "ArrowLeft";
+    const shrink = side === "top" ? "ArrowUp" : side === "bottom" ? "ArrowDown" : side === "left" ? "ArrowLeft" : "ArrowRight";
     if (e.key === grow) onResize(size.width + step);
     else if (e.key === shrink) onResize(size.width - step);
     else if (e.key === "Home") onResize(size.min);

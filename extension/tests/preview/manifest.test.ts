@@ -15,6 +15,8 @@ test("the manifest keeps the COEP/COOP headers DuckDB-WASM threads need", () => 
   expect(manifest.cross_origin_embedder_policy).toEqual({ value: "require-corp" });
   expect(manifest.cross_origin_opener_policy).toEqual({ value: "same-origin" });
   expect(manifest.permissions).toContain("declarativeNetRequestWithHostAccess");
+  // The media viewer only takes over downloads a tab's navigation started (src/background/).
+  expect(manifest.permissions).toEqual(expect.arrayContaining(["downloads", "webNavigation"]));
 });
 
 test("the manifest grants all-sites host access at install, so Browser preview works with no prompt", () => {

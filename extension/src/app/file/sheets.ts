@@ -7,7 +7,9 @@ import type { SortSpec } from "../lib/filters";
 export type Sheet =
   | { kind: "source"; title: string; where: string[]; sort: SortSpec[] }
   | { kind: "frequency"; title: string; column: string; where: string[] }
-  | { kind: "summary"; title: string; where: string[] };
+  | { kind: "summary"; title: string; where: string[] }
+  /** Free SQL typed in the SQL bar, run as is against the file's table. */
+  | { kind: "query"; title: string; sql: string; where: string[] };
 
 export function sourceSheet(table: string): Sheet {
   return { kind: "source", title: table, where: [], sort: [] };
@@ -28,6 +30,8 @@ export function sheetSql(sheet: Sheet, table: string, dialect: SqlDialect, limit
     }
     case "summary":
       return sheet.where.length ? `SUMMARIZE SELECT * FROM ${t}${whereSql(sheet.where)}` : `SUMMARIZE ${t}`;
+    case "query":
+      return sheet.sql;
   }
 }
 
@@ -45,6 +49,11 @@ export function frequencySheet(parent: Sheet, column: string): Sheet {
 
 export function summarySheet(parent: Sheet): Sheet {
   return { kind: "summary", title: "summary", where: parent.where };
+}
+
+export function querySheet(sql: string): Sheet {
+  const oneLine = sql.trim().replace(/\s+/g, " ");
+  return { kind: "query", title: oneLine.length > 40 ? oneLine.slice(0, 39) + "…" : oneLine, sql: sql.trim(), where: [] };
 }
 
 export function filteredSheet(parent: Sheet, condition: string, label: string): Sheet {
