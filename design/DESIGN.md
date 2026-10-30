@@ -71,9 +71,9 @@ Without the runner, those two connection types show an "Install dbui runner" car
   // Public key that pins the extension ID (dalbkdjjdgbjhoalobeikhpchkoddnpb) for unpacked
   // installs, whatever folder dist/ is loaded from (§5.1).
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr5oL…",
-  // No "default_popup" and no "side_panel": clicking the icon fires action.onClicked,
-  // which opens or focuses the full-page app tab (§4.1).
-  "action": { "default_title": "Open dbui" },
+  // Clicking the icon opens popup.html: a searchable list of connections (§4.1). No "side_panel".
+  "name": "Chrome DB Viewer",
+  "action": { "default_title": "Chrome DB Viewer", "default_popup": "popup.html" },
   "permissions": ["nativeMessaging", "downloads", "downloads.open", "identity", "storage", "unlimitedStorage",
                   "declarativeNetRequestWithHostAccess"],  // data-file links (§3.12); rules only act on hosts granted below
   "host_permissions": [
@@ -803,23 +803,18 @@ with a blob URL) and **Import…** (file picker → summary such as "12 connecti
 ## 4. UI
 
 ### 4.1 Surfaces
-dbui is **full-page only**: no toolbar popup, no dropdown, no Chrome side panel.
+The extension is named **Chrome DB Viewer** in Chrome (manifest `name`); the app itself still calls
+itself dbui. All work happens in full-page tabs; the only other surface is the toolbar popup.
+There's no Chrome side panel.
 
-- **Toolbar icon**: one click opens dbui as a full browser tab, or focuses it if it's
-  already open. The manifest has no `default_popup`, so the click goes straight to:
-  ```ts
-  chrome.action.onClicked.addListener(async () => {
-    const url = chrome.runtime.getURL("app.html");
-    const [tab] = await chrome.tabs.query({ url: url + "*" });
-    if (tab?.id) {
-      await chrome.tabs.update(tab.id, { active: true });
-      await chrome.windows.update(tab.windowId, { focused: true });
-    } else {
-      await chrome.tabs.create({ url });
-    }
-  });
-  ```
-  Finding the existing tab with `tabs.query` on our own extension URL needs no `tabs` permission.
+- **Toolbar icon**: opens a popup (`popup.html`, `src/popup/Popup.tsx`, 380px wide) listing
+  the saved connections. They're grouped and sorted like Home's picker, with a search box
+  focused on open. Clicking a connection (or pressing Enter) opens it in a new tab
+  (`#c_<id>`), records `lastUsedAt` and closes the popup. Its footer has **Open app**, which
+  focuses an app tab already on Home or opens a new one, and **New connection**, which does
+  the same at `#home/new` so Home starts with the engine picker open. Tabs showing a
+  connection or a file are never taken over. Finding the tabs with `tabs.query` on our own
+  extension URL needs no `tabs` permission.
 - **Home** (`app.html#home`), modelled on TablePlus's welcome window:
   - A search box across the top ("Search for connection…", focused on open, `↑↓` + `Enter` connects).
   - Connections as a compact list: a round two-letter engine badge (`Pg`, `Ch`, `Bq`, `Du`, `Re`, `Sl`),
@@ -861,11 +856,16 @@ dbui is **full-page only**: no toolbar popup, no dropdown, no Chrome side panel.
 - Left: toggle the left pane, open the connection list (Home), read-only lock, switch database, open a SQL query tab.
 - Centre: a **status capsule in the env colour** (green for local, blue for dev, amber for staging, red for production).
   It reads `ENV │ Engine version : connection : database : schema.table`. Click it to open connection settings.
-- Right: warnings/console log (every statement dbui ran, with timings), refresh (`⌘R`),
-  command palette (`⌘K`), toggle the bottom panel, toggle the right pane.
+- Right: refresh (`⌘R`), command palette (`⌘K`), toggle the bottom panel, toggle the right pane.
+  The statement log (every statement dbui ran, with timings) is toggled from a terminal icon at
+  the right end of the view's bottom bar. It opens just below that bar as a fixed-height strip
+  (132px, scrolls inside), so it never pushes the grid around.
 
 **Left pane**
-- Four tabs, as a compact segmented control (labels collapse to icons when the pane is narrow):
+- Four folding sections stacked down the pane, each header an uppercase label with no chevron.
+  One section is open at a time: its header is a full-width accent bar and its body fills the
+  remaining height. The folded ones sit below it, divided by hairlines. Clicking the open
+  section folds it.
   - **Items**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
   - **Collections**: named queries in collections and folders (§3.14).
   - **Workflows**: multi-step pipelines (§3.15).
@@ -1036,7 +1036,7 @@ chrome-db-viewer/
   extension/                 TypeScript, Vite, React
     manifest.config.ts
     src/app/                 app.html UI (sidebar, tabs, grid, editor, sheet stack, drawer)
-    src/background.ts        toolbar click → open or focus the app tab; preview redirect rules
+    src/background.ts        preview redirect rules (the toolbar icon opens src/popup/)
     src/core/                driver interface, ChangeSet, dialects, caches, SecretStore
     src/auth/google/         TokenProviders: chromeIdentity, webAuthFlow, serviceAccount, adcFile, impersonate, pasted
     src/drivers/  duckdb/  files/  sqlite/  bigquery/  clickhouse/  runner/
