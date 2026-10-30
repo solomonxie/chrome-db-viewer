@@ -1,0 +1,7 @@
+{
+  "columns": [
+    { "name": "ad_id", "type": "VARCHAR", "nullable": false },
+    { "name": "name", "type": "VARCHAR", "nullable": true }
+  ],
+  "rows": [["a1", "Spring"], ["a3", "Autumn"]]
+}

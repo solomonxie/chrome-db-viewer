@@ -1,0 +1,7 @@
+{
+  "columns": [
+    { "name": "ad_id", "type": "VARCHAR", "nullable": false },
+    { "name": "spend", "type": "DOUBLE", "nullable": false }
+  ],
+  "rows": [["a1", 12.5], ["a2", 3], ["a3", 40]]
+}
