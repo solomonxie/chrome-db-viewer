@@ -9,6 +9,7 @@ export type Route =
   | { name: "file"; src?: string; fileHandleId?: string }
   | { name: "settings"; section?: string }
   | { name: "download-prompt"; downloadId: number }
+  /** A workflow (code name: chain), at #workflow/<id>. */
   | { name: "chain"; chainId: string };
 
 export function parseRoute(hash: string, search = ""): Route {
@@ -25,6 +26,8 @@ export function parseRoute(hash: string, search = ""): Route {
     const section = h.slice(9);
     return section ? { name: "settings", section: decodeURIComponent(section) } : { name: "settings" };
   }
+  // Workflows: #workflow/<id> is what the UI links to; #chain/<id> (the old name) still works.
+  if (h.startsWith("workflow/") && h.length > 9) return { name: "chain", chainId: decodeURIComponent(h.slice(9)) };
   if (h.startsWith("chain/") && h.length > 6) return { name: "chain", chainId: decodeURIComponent(h.slice(6)) };
   if (h.startsWith("download-prompt")) {
     const id = Number(new URLSearchParams(h.split("?")[1] ?? "").get("id"));
@@ -47,7 +50,7 @@ export function routeHash(route: Route): string {
     case "download-prompt":
       return `#download-prompt?id=${route.downloadId}`;
     case "chain":
-      return `#chain/${encodeURIComponent(route.chainId)}`;
+      return `#workflow/${encodeURIComponent(route.chainId)}`;
   }
 }
 
@@ -57,9 +60,29 @@ export function routeUrl(route: Route): string {
   return location.pathname + routeHash(route);
 }
 
+/**
+ * Opens a route in a new browser tab, never reusing one: chrome.tabs.create inside the
+ * extension, window.open outside it (tests, a plain dev page).
+ */
+export function openInNewTab(route: Route): void {
+  const c = typeof chrome !== "undefined" ? chrome : undefined;
+  if (c?.tabs?.create && c.runtime?.getURL) {
+    const page = c.runtime.getURL("app.html");
+    const url = route.name === "file" && route.src ? buildSrcUrl(page, route.src, routeHash(route)) : page + routeHash(route);
+    void c.tabs.create({ url });
+    return;
+  }
+  window.open(routeUrl(route), "_blank");
+}
+
+/** A connection always opens in its own new tab (#c_<id>); the current tab stays where it is. */
+export function openConnectionTab(connectionId: string): void {
+  openInNewTab({ name: "connection", connectionId });
+}
+
 export function navigate(route: Route, opts: { newTab?: boolean } = {}): void {
   if (opts.newTab) {
-    window.open(routeUrl(route), "_blank");
+    openInNewTab(route);
     return;
   }
   const hasSrc = route.name === "file" && !!route.src;

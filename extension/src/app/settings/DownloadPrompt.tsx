@@ -35,7 +35,7 @@ export function DownloadPrompt({ downloadId }: { downloadId: number }) {
           <>
             <h2>Open {p.filename} in dbui?</h2>
             <p>
-              {p.kind === "media" ? "Image or video" : "Data file"}
+              Data file
               {p.totalBytes >= 0 ? ` · ${fmtBytes(p.totalBytes)}` : ""}
               {p.mime ? ` · ${p.mime}` : ""}
             </p>

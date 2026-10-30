@@ -320,7 +320,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     rows.push(
       <div
         key={r}
-        className={"r" + (selected ? " sel" : "") + (status ? " " + status : "")}
+        className={"r" + (r % 2 ? " alt" : "") + (selected ? " sel" : "") + (status ? " " + status : "")}
         style={{ top: HEAD_H + r * ROW_H, width: totalW }}
         role="row"
         aria-rowindex={r + 1}
@@ -362,7 +362,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
                 role="columnheader"
                 aria-sort={s ? (s.dir === "asc" ? "ascending" : "descending") : undefined}
               >
-                {c.primaryKey && <span className="faint">⚿</span>}
+                {c.primaryKey && <Icon name="key" className="ico sm pk" title="Primary key" />}
                 <span>{c.name}</span>
                 <small>{c.type}</small>
                 {s && (

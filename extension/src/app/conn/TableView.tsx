@@ -420,7 +420,7 @@ export function TableView(props: {
           </button>
         )}
         <span className="spacer" />
-        <input ref={quickRef} className="qs" placeholder="🔍 Search loaded rows" value={quick} onChange={(e) => setQuick(e.target.value)} aria-label="Search loaded rows" />
+        <input ref={quickRef} className="qs" placeholder="Search loaded rows" value={quick} onChange={(e) => setQuick(e.target.value)} aria-label="Search loaded rows" />
         <select className="input" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} aria-label="Rows per page" title="Rows per page">
           {PAGE_SIZES.map((n) => (
             <option key={n} value={n}>

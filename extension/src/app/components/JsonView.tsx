@@ -1,5 +1,6 @@
 // Pretty-printed, foldable JSON for the Details pane.
 import { useState } from "react";
+import { Icon } from "./Icon";
 
 function Leaf({ v }: { v: unknown }) {
   if (v === null) return <span className="jb">null</span>;
@@ -38,7 +39,7 @@ function Node({ name, v, last, depth }: { name?: string; v: unknown; last: boole
   return (
     <div>
       <button className="jt" onClick={() => setOpen(!open)} aria-label={open ? "Fold" : "Unfold"}>
-        {open ? "▾" : "▸"}
+        <Icon name={open ? "chevron-down" : "chevron-right"} className="ico sm" />
       </button>
       {label}
       {o}

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "pg_orders",
+    "name": "Orders prod",
+    "driver": "postgres",
+    "env": "production",
+    "readOnly": true,
+    "group": "Shop",
+    "createdAt": 1760000000000,
+    "lastUsedAt": 1761000000000,
+    "secretRef": "c_pg_orders",
+    "options": { "host": "orders.db.internal", "port": 5432, "user": "reader", "database": "orders", "secretMode": "session" }
+  },
+  {
+    "id": "pg_local",
+    "name": "Local postgres",
+    "driver": "postgres",
+    "env": "local",
+    "readOnly": false,
+    "createdAt": 1760000000000,
+    "lastUsedAt": 1760500000000,
+    "options": { "host": "localhost", "port": 5432, "user": "postgres", "database": "app", "secretMode": "session" }
+  },
+  {
+    "id": "ch_events",
+    "name": "Events warehouse",
+    "driver": "clickhouse",
+    "env": "staging",
+    "readOnly": false,
+    "group": "Shop",
+    "createdAt": 1760000000000,
+    "options": { "url": "https://ch.example.test:8443", "user": "default", "database": "events", "protocol": "http", "secretMode": "session" }
+  }
+]

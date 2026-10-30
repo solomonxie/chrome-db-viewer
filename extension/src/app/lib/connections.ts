@@ -6,6 +6,7 @@ import { createDriver } from "@core/registry";
 import { createDemoDriver, DEMO_CONNECTION, DEMO_CONNECTION_ID, isDemo } from "../demo/demoDriver";
 import * as db from "../store/db";
 import { readSecret, type SecretMode } from "../store/secrets";
+import { openConnectionTab } from "./route";
 
 export type { SavedConnection } from "../store/db";
 
@@ -28,6 +29,26 @@ export async function loadConnection(id: string): Promise<db.SavedConnection | u
 export async function saveConnection(cfg: db.SavedConnection): Promise<void> {
   if (cfg.id === DEMO_CONNECTION_ID) return;
   await db.put("connections", cfg);
+}
+
+/**
+ * Opens a connection in a new browser tab (never reusing one, even for the same connection)
+ * and records when it was last used. The tab opens first, while the click still counts as
+ * a user gesture for the window.open fallback.
+ */
+export async function openConnection(c: db.SavedConnection): Promise<void> {
+  openConnectionTab(c.id);
+  if (!isDemo(c)) await saveConnection({ ...c, lastUsedAt: Date.now() }).catch(() => {});
+}
+
+/** Sort order shared by Home and the pickers: ungrouped first, named groups A-Z, Demo last. */
+export function compareGroups(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === "") return -1;
+  if (b === "") return 1;
+  if (a === "Demo") return 1;
+  if (b === "Demo") return -1;
+  return a.localeCompare(b);
 }
 
 export async function deleteConnection(id: string): Promise<void> {
@@ -68,7 +89,7 @@ export function connectionSubtitle(cfg: ConnectionConfig): string {
   const s = (k: string) => (typeof o[k] === "string" || typeof o[k] === "number" ? String(o[k]) : "");
   switch (cfg.driver) {
     case "bigquery":
-      return [s("project"), s("dataset")].filter(Boolean).join(" : ") || "BigQuery";
+      return [s("project"), s("dataset")].filter(Boolean).join(" : ") || "No project set";
     case "clickhouse":
       return [s("url").replace(/^https?:\/\//, ""), s("database")].filter(Boolean).join(" : ");
     case "duckdb":

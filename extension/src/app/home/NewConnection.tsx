@@ -380,8 +380,8 @@ export function ConnectionForm(props: {
           </>
         )}
         <span className="k">Read-only</span>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input type="checkbox" checked={form.readOnly} onChange={(e) => setForm({ ...form, readOnly: e.target.checked })} />
+        <label className="switch sm">
+          <input type="checkbox" role="switch" checked={form.readOnly} onChange={(e) => setForm({ ...form, readOnly: e.target.checked })} />
           <span className="muted">Block edits and write statements</span>
         </label>
         <button type="submit" hidden />

@@ -1,4 +1,5 @@
-// Left pane: Items (lazy object tree with search highlight and type filter), Saved queries, History.
+// Left pane: Items (lazy object tree with search highlight and type filter), Collections (named
+// queries: Postman-style), Workflows (multi-step pipelines: dbt-style), and History.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ObjectNode, ObjectPath, ObjectType } from "@core/types";
@@ -10,13 +11,11 @@ import { Icon } from "../components/Icon";
 import { isFavorite, loadFavorites, saveFavorites, toggleFavorite, type Favorite } from "../lib/favorites";
 import type { NamedQuery } from "../../collections/model";
 import { CollectionsTree } from "../collections/CollectionsTree";
+import { WorkflowsList } from "../chains/WorkflowsList";
 import { SaveAsNamedQuery } from "../collections/SaveAsNamedQuery";
 import { ContextMenu } from "../components/ui";
+import { Chevron, KindIcon, PaneTabs } from "../components/TreeRow";
 
-const ICON: Partial<Record<ObjectType, string>> = {
-  database: "◫", schema: "◇", group: "", table: "▦", view: "◰", materialized_view: "◲",
-  function: "ƒ", dictionary: "▤", dataset: "◫", key: "⚿", file: "▤",
-};
 const OPENABLE = new Set<ObjectType>(["table", "view", "materialized_view", "dictionary", "file", "key"]);
 const TYPE_FILTERS: { type: ObjectType; label: string }[] = [
   { type: "table", label: "Tables" },
@@ -48,7 +47,7 @@ export function LeftPane(props: {
 }) {
   const { ctx } = props;
   const { driver, nodeTypes } = ctx;
-  const [tab, setTab] = useState<"items" | "queries" | "collections" | "history">("items");
+  const [tab, setTab] = useState<PaneTabKey>("items");
   const [q, setQ] = useState("");
   const [hidden, setHidden] = useState<Set<ObjectType>>(new Set());
   const [showTypeMenu, setShowTypeMenu] = useState(false);
@@ -158,8 +157,8 @@ export function LeftPane(props: {
       out.push(
         <button
           key={nk}
-          className={"node" + (active ? " active" : "") + (n.type === "group" ? " grp" : "")}
-          style={{ paddingLeft: 6 + depth * 12 }}
+          className={"node k-" + n.type + (active ? " active" : "") + (n.type === "group" ? " grp" : "")}
+          style={{ paddingLeft: 4 + depth * 14, ["--depth" as string]: depth }}
           onClick={(e) => (openable ? props.onOpen(n.path, e.altKey || e.metaKey) : n.hasChildren && toggle(n))}
           onDoubleClick={() => openable && n.hasChildren && toggle(n)}
           onKeyDown={(e) => {
@@ -172,18 +171,18 @@ export function LeftPane(props: {
           role="treeitem"
           aria-expanded={n.hasChildren ? open : undefined}
         >
-          <span
-            className="tw"
-            onClick={(e) => {
+          <Chevron
+            open={open}
+            leaf={!n.hasChildren}
+            loading={tree.loading.has(nk)}
+            onToggle={(e) => {
               if (n.hasChildren) {
                 e.stopPropagation();
                 toggle(n);
               }
             }}
-          >
-            {n.hasChildren ? (tree.loading.has(nk) ? "…" : open ? "▾" : "▸") : ""}
-          </span>
-          {ICON[n.type] && <span className="faint">{ICON[n.type]}</span>}
+          />
+          <KindIcon type={n.type} />
           <span className="nm">
             <Highlight text={n.name} needle={needle} />
           </span>
@@ -195,7 +194,7 @@ export function LeftPane(props: {
       const err = tree.errors.get(nk);
       if (err && open) {
         out.push(
-          <div key={nk + ":err"} className="err" style={{ margin: "2px 6px 2px " + (18 + depth * 12) + "px" }}>
+          <div key={nk + ":err"} className="err" style={{ margin: "2px 6px 2px " + (22 + depth * 14) + "px" }}>
             {err}
           </div>,
         );
@@ -206,16 +205,15 @@ export function LeftPane(props: {
 
   return (
     <div className="pane-left">
-      <div className="ptabs" role="tablist">
-        {(["items", "queries", "collections", "history"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} title={TAB_HINT[t]}>
-            {TAB_LABEL[t]}
-          </button>
-        ))}
-      </div>
+      <PaneTabs
+        tabs={TAB_KEYS.map((t) => ({ key: t, label: TAB_LABEL[t], icon: TAB_ICON[t], hint: TAB_HINT[t] }))}
+        value={tab}
+        onChange={setTab}
+      />
       {tab === "items" && (
         <>
           <div className="psearch">
+            <Icon name="search" className="ico psearch-ico" />
             <input placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search items" />
             {q && (
               <button className="btn icon ghost" onClick={() => setQ("")} title="Clear" aria-label="Clear search">
@@ -227,9 +225,9 @@ export function LeftPane(props: {
             </button>
           </div>
           {showTypeMenu && (
-            <div style={{ padding: "0 10px 6px", display: "flex", flexDirection: "column", gap: 2, fontSize: 14 }}>
+            <div className="typefilter">
               {TYPE_FILTERS.map((f) => (
-                <label key={f.type} style={{ display: "flex", gap: 6 }}>
+                <label key={f.type}>
                   <input
                     type="checkbox"
                     checked={!hidden.has(f.type)}
@@ -259,8 +257,8 @@ export function LeftPane(props: {
           </div>
         </>
       )}
-      {tab === "queries" && <QueriesList connectionId={ctx.cfg.id} onOpen={props.onOpenSql} version={props.historyVersion} />}
       {tab === "collections" && <CollectionsTree onOpenQuery={(q) => props.onOpenNamedQuery?.(q)} activeQueryId={props.activeNamedQueryId} toast={ctx.toast} />}
+      {tab === "workflows" && <WorkflowsList toast={ctx.toast} />}
       {tab === "history" && (
         <HistoryList
           connectionId={ctx.cfg.id}
@@ -312,13 +310,13 @@ function FavoritesSection(props: {
         <button
           key={pathKey(f.path)}
           className={"node" + (active === pathKey(f.path) ? " active" : "")}
-          style={{ paddingLeft: 6 }}
+          style={{ paddingLeft: 4 }}
           onClick={(e) => props.onOpen(f.path, e.altKey || e.metaKey)}
           title={f.path.join(".")}
           role="treeitem"
         >
-          <span className="tw" />
-          {ICON[f.type] && <span className="faint">{ICON[f.type]}</span>}
+          <Chevron open={false} leaf />
+          <KindIcon type={f.type} />
           <span className="nm">
             <Highlight text={f.name} needle={props.needle} />
           </span>
@@ -329,41 +327,18 @@ function FavoritesSection(props: {
   );
 }
 
-const TAB_LABEL = { items: "Items", queries: "Saved", collections: "Collections", history: "History" } as const;
+// Collections and Workflows are separate tabs: one holds reusable named queries, the other
+// pipelines built from them. The tab strip collapses labels to icons when the pane is narrow.
+const TAB_KEYS = ["items", "collections", "workflows", "history"] as const;
+type PaneTabKey = (typeof TAB_KEYS)[number];
+const TAB_LABEL = { items: "Items", collections: "Collections", workflows: "Workflows", history: "History" } as const;
+const TAB_ICON = { items: "items", collections: "collections", workflows: "workflow", history: "history" } as const;
 const TAB_HINT = {
   items: "Tables, views and other objects",
-  queries: "Queries you saved by name (⌘S in a query tab)",
-  collections: "Named queries with variables and environments, shared across connections",
+  collections: "Named queries in folders, with variables and environments (⌘S in a query tab saves here)",
+  workflows: "Multi-step pipelines: queries, local transforms, variables, exports and checks",
   history: "Every statement run on this connection, newest first",
 } as const;
-
-function QueriesList({ connectionId, onOpen, version }: { connectionId: string; onOpen: (sql: string, title?: string) => void; version: number }) {
-  const [rows, setRows] = useState<db.SavedQuery[]>([]);
-  const [q, setQ] = useState("");
-  useEffect(() => {
-    db.getAll("queries")
-      .then((all) => setRows(all.filter((r) => r.connectionId === connectionId).sort((a, b) => b.updatedAt - a.updatedAt)))
-      .catch(() => setRows([]));
-  }, [connectionId, version]);
-  const hits = rows.filter((r) => (r.name + r.sql).toLowerCase().includes(q.toLowerCase()));
-  return (
-    <>
-      <div className="psearch">
-        <input placeholder="Search saved queries" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search saved queries" />
-      </div>
-      <div className="hlist">
-        {hits.length === 0 && <div className="empty">No saved queries yet. In a query tab, press ⌘S to keep a query here by name.</div>}
-        {hits.map((r) => (
-          <button key={r.id} className="hitem" onClick={() => onOpen(r.sql, r.name)}>
-            <b style={{ fontSize: 14 }}>{r.name}</b>
-            <code>{r.sql}</code>
-            <small>{fmtAgo(r.updatedAt)}</small>
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
 
 function HistoryList({ connectionId, onOpen, version, dialect, onSavedNamed }: { connectionId: string; onOpen: (sql: string) => void; version: number; dialect: ConnCtx["driver"]["dialect"]["name"]; onSavedNamed: (q: NamedQuery) => void }) {
   const [rows, setRows] = useState<db.HistoryEntry[]>([]);
@@ -411,14 +386,14 @@ function HistoryList({ connectionId, onOpen, version, dialect, onSavedNamed }: {
               <span
                 className="hsave"
                 role="button"
-                title="Save as named query…"
-                aria-label="Save as named query…"
+                title="Save to a collection"
+                aria-label="Save to a collection"
                 onClick={(e) => {
                   e.stopPropagation();
                   setSaving(r.sql);
                 }}
               >
-                Save as…
+                <Icon name="named-query" className="ico sm" /> Save
               </span>
             </small>
           </button>
@@ -432,7 +407,7 @@ function HistoryList({ connectionId, onOpen, version, dialect, onSavedNamed }: {
           items={[
             { label: "Open", onClick: () => onOpen(menu.sql) },
             { label: "Copy SQL", onClick: () => void navigator.clipboard.writeText(menu.sql) },
-            { label: "Save as named query…", onClick: () => setSaving(menu.sql) },
+            { label: "Save to a collection…", onClick: () => setSaving(menu.sql) },
           ]}
         />
       )}

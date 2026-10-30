@@ -1,43 +1,80 @@
-// Home (DESIGN.md §4.1): connection search and list with groups, new-connection picker,
-// recent files, Open file, runner status, Settings.
+// Home (DESIGN.md §4.1): a compact connection picker. One searchable dropdown of saved
+// connections with Connect, New, Edit, a ⋯ menu (Duplicate, Move to group, Export, Delete)
+// and Settings; below it Open file with recent files, and a one-line runner status.
+// Connect always opens the connection in a new browser tab; this tab stays on Home.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DriverId } from "@core/types";
-import { connectionSubtitle, deleteConnection, listConnections, saveConnection, type SavedConnection } from "../lib/connections";
+import {
+  deleteConnection,
+  listConnections,
+  openConnection,
+  saveConnection,
+  type SavedConnection,
+} from "../lib/connections";
 import { isDemo } from "../demo/demoDriver";
-import { canPickFiles, pickFile, recentFiles, rememberFile } from "../lib/files";
-import { fmtAgo, fmtBytes, ENV_VAR } from "../lib/format";
+import {
+  canPickFiles,
+  pickFile,
+  recentFiles,
+  rememberFile,
+} from "../lib/files";
+import { fmtAgo, fmtBytes } from "../lib/format";
 import { navigate } from "../lib/route";
 import { useKeys, MOD } from "../lib/keys";
-import type { RecentFile } from "../store/db";
+import { uid, type RecentFile } from "../store/db";
 import { forgetSecret } from "../store/secrets";
-import { EngineBadge, EnvTag, Highlight, Modal, useToast } from "../components/ui";
+import { ContextMenu, Modal, useToast } from "../components/ui";
+import { ConnectionPicker } from "../components/ConnectionPicker";
 import { ConnectionForm, EnginePicker } from "./NewConnection";
 import type { FormState } from "../lib/connForm";
-import { RunnerCard, useRunnerStatus } from "./RunnerCard";
+import { installRunner, useRunnerStatus } from "./RunnerCard";
 import { Icon } from "../components/Icon";
+import type { RunnerStatus } from "../lib/runner";
 
 type Sheet =
   | { kind: "picker" }
-  | { kind: "form"; driver: DriverId; prefill?: Partial<FormState>; existing?: SavedConnection }
-  | { kind: "group" }
+  | {
+      kind: "form";
+      driver: DriverId;
+      prefill?: Partial<FormState>;
+      existing?: SavedConnection;
+    }
+  | { kind: "group"; conn?: SavedConnection }
   | { kind: "delete"; conn: SavedConnection }
   | null;
 
-const UNGROUPED = "";
+const LAST_KEY = "dbui.home.selected";
 
-export function Home() {
-  const [conns, setConns] = useState<SavedConnection[]>([]);
+function readLast(): string | null {
+  try {
+    return localStorage.getItem(LAST_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeLast(id: string) {
+  try {
+    localStorage.setItem(LAST_KEY, id);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/**
+ * `banner` is a slot at the very top of Home for app-level notices (e.g. "Found a backup…
+ * Restore?"); it renders above everything else when set.
+ */
+export function Home(props: { banner?: ReactNode } = {}) {
+  const [conns, setConns] = useState<SavedConnection[] | null>(null);
   const [files, setFiles] = useState<RecentFile[]>([]);
-  const [q, setQ] = useState("");
-  const [idx, setIdx] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(readLast);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [extraGroups, setExtraGroups] = useState<string[]>([]);
-  const [dragOver, setDragOver] = useState<string | null>(null);
   const [fileDrag, setFileDrag] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const runner = useRunnerStatus();
   const toast = useToast();
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const reload = () => {
     void listConnections().then(setConns);
@@ -45,25 +82,44 @@ export function Home() {
   };
   useEffect(reload, []);
 
-  const needle = q.trim().toLowerCase();
-  const hits = useMemo(
+  const list = conns ?? [];
+  // The remembered selection, else the most recently used connection.
+  const selected = useMemo(() => {
+    const hit = list.find((c) => c.id === selectedId);
+    if (hit) return hit;
+    return (
+      [...list].sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))[0] ??
+      null
+    );
+  }, [list, selectedId]);
+  const realConns = list.filter((c) => !isDemo(c));
+  const allGroups = useMemo(
     () =>
-      conns
-        .filter((c) => !needle || `${c.name} ${connectionSubtitle(c)} ${c.driver} ${c.env} ${c.group ?? ""}`.toLowerCase().includes(needle))
-        .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || a.name.localeCompare(b.name)),
-    [conns, needle],
+      [
+        ...new Set([
+          ...list
+            .map((c) => c.group)
+            .filter((g): g is string => !!g && g !== "Demo"),
+          ...extraGroups,
+        ]),
+      ].sort(),
+    [list, extraGroups],
   );
-  const groups = useMemo(() => {
-    const names = new Set<string>([...hits.map((c) => c.group ?? UNGROUPED), ...(needle ? [] : extraGroups)]);
-    return [...names].sort((a, b) => (a === UNGROUPED ? -1 : b === UNGROUPED ? 1 : a === "Demo" ? 1 : b === "Demo" ? -1 : a.localeCompare(b)));
-  }, [hits, extraGroups, needle]);
-  // Flattened in display order, for ↑↓ navigation.
-  const ordered = useMemo(() => groups.flatMap((g) => hits.filter((c) => (c.group ?? UNGROUPED) === g)), [groups, hits]);
-  const allGroups = useMemo(() => [...new Set([...conns.map((c) => c.group).filter((g): g is string => !!g && g !== "Demo"), ...extraGroups])], [conns, extraGroups]);
 
-  const open = async (c: SavedConnection, newTab = false) => {
-    if (!isDemo(c)) await saveConnection({ ...c, lastUsedAt: Date.now() }).catch(() => {});
-    navigate({ name: "connection", connectionId: c.id }, { newTab });
+  const select = (c: SavedConnection) => {
+    setSelectedId(c.id);
+    writeLast(c.id);
+  };
+  const open = (c: SavedConnection) => {
+    select(c);
+    void openConnection(c).then(() =>
+      setConns(
+        (cs) =>
+          cs?.map((x) =>
+            x.id === c.id && !isDemo(x) ? { ...x, lastUsedAt: Date.now() } : x,
+          ) ?? cs,
+      ),
+    );
   };
 
   const openFile = async () => {
@@ -77,13 +133,50 @@ export function Home() {
     }
   };
 
-  useKeys({ "mod+o": () => void openFile(), "mod+n": () => setSheet({ kind: "picker" }) });
+  useKeys({
+    "mod+o": () => void openFile(),
+    "mod+n": () => setSheet({ kind: "picker" }),
+  });
 
-  const moveToGroup = async (id: string, group: string) => {
-    const c = conns.find((x) => x.id === id);
-    if (!c || isDemo(c)) return;
-    await saveConnection({ ...c, group: group || undefined });
+  const duplicate = async (c: SavedConnection) => {
+    const copy: SavedConnection = {
+      ...c,
+      id: uid(),
+      name: `${c.name} copy`,
+      createdAt: Date.now(),
+      lastUsedAt: undefined,
+      secretRef: undefined,
+      favorites: undefined,
+    };
+    await saveConnection(copy);
+    select(copy);
     reload();
+    toast(
+      `Duplicated as ${copy.name}${c.secretRef ? ". Enter its password when you connect." : ""}`,
+    );
+  };
+
+  const exportConn = (c: SavedConnection) => {
+    // Settings only: no secrets, no per-browser state.
+    const rest: Partial<SavedConnection> = { ...c };
+    delete rest.secretRef;
+    delete rest.lastUsedAt;
+    delete rest.favorites;
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          { dbui: "connection", version: 1, connection: rest },
+          null,
+          2,
+        ),
+      ],
+      { type: "application/json" },
+    );
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${c.name.replace(/[^\w.-]+/g, "_") || "connection"}.dbui.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   const onDropFiles = async (e: React.DragEvent) => {
@@ -91,13 +184,18 @@ export function Home() {
     setFileDrag(false);
     const item = [...e.dataTransfer.items].find((i) => i.kind === "file");
     if (!item) return;
-    type WithHandle = DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> };
+    type WithHandle = DataTransferItem & {
+      getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+    };
     const h = await (item as WithHandle).getAsFileSystemHandle?.();
     if (h && h.kind === "file") {
       const r = await rememberFile(h as FileSystemFileHandle);
       navigate({ name: "file", fileHandleId: r.id });
     } else toast("Drop a file from Finder to open it.");
   };
+
+  const demoSel = !!selected && isDemo(selected);
+  const empty = conns !== null && realConns.length === 0;
 
   return (
     <div
@@ -109,167 +207,212 @@ export function Home() {
         }
       }}
       onDragLeave={(e) => e.currentTarget === e.target && setFileDrag(false)}
-      onDrop={(e) => e.dataTransfer.types.includes("Files") && void onDropFiles(e)}
+      onDrop={(e) =>
+        e.dataTransfer.types.includes("Files") && void onDropFiles(e)
+      }
     >
-      <div className="home-inner">
-        <div className="main">
+      <div className="home-col">
+        {/* Slot for app-level notices such as the backup restore banner. */}
+        {props.banner && <div className="home-banner">{props.banner}</div>}
+
+        <header className="home-head">
           <h1>
-            <svg className="ico" style={{ width: 26, height: 26, color: "var(--accent)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <ellipse cx="12" cy="5" rx="8" ry="3" />
-              <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-            </svg>
+            <span className="logo" aria-hidden>
+              <Icon name="database" className="ico" />
+            </span>
             dbui
           </h1>
-          <div className="hhead">
-            <input
-              ref={searchRef}
-              className="hsearch"
+          <button
+            className="btn icon ghost"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => navigate({ name: "settings" })}
+          >
+            <Icon name="settings" />
+          </button>
+        </header>
+
+        <section className="home-card" aria-label="Connections">
+          <div className="home-card-title">
+            <h2>Connection</h2>
+            {conns !== null && (
+              <span className="faint">
+                {realConns.length === 0 ? "" : `${realConns.length} saved`}
+              </span>
+            )}
+          </div>
+          {empty && (
+            <div className="home-empty">
+              <b>No connections yet</b>
+              <span>
+                Add a database or open a data file. The demo below has sample
+                data to try.
+              </span>
+              <div className="row">
+                <button
+                  className="btn primary"
+                  onClick={() => setSheet({ kind: "picker" })}
+                >
+                  <Icon name="plus" />
+                  New connection
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void openFile()}
+                  disabled={!canPickFiles()}
+                >
+                  <Icon name="folder-open" />
+                  Open file
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="home-pickrow">
+            <ConnectionPicker
+              connections={list}
+              selectedId={selected?.id ?? null}
+              onSelect={select}
+              onOpen={open}
+              label="Connection"
               autoFocus
-              placeholder="Search for connection…"
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setIdx(0);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setIdx((i) => Math.min(ordered.length - 1, i + 1));
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setIdx((i) => Math.max(0, i - 1));
-                } else if (e.key === "Enter" && ordered[idx]) void open(ordered[idx]!, e.altKey || e.metaKey);
-              }}
-              aria-label="Search for connection"
             />
-            <button className="btn primary" onClick={() => setSheet({ kind: "picker" })} title="New connection">
-              + New
+            <button
+              className="btn primary connect"
+              disabled={!selected}
+              onClick={() => selected && open(selected)}
+              title="Open in a new tab (Enter)"
+            >
+              Connect
             </button>
           </div>
-
-          <div className="clist" role="listbox" aria-label="Connections">
-            {ordered.length === 0 && <div className="empty">{needle ? "No connection matches." : "No connections yet. Click + New."}</div>}
-            {groups.map((g) => {
-              const inGroup = hits.filter((c) => (c.group ?? UNGROUPED) === g);
-              return (
-                <div key={g || "_"}>
-                  {(g !== UNGROUPED || groups.length > 1) && (
-                    <div
-                      className={"cgroup" + (dragOver === g ? " drop" : "")}
-                      onDragOver={(e) => {
-                        if (g === "Demo") return;
-                        e.preventDefault();
-                        setDragOver(g);
-                      }}
-                      onDragLeave={() => setDragOver(null)}
-                      onDrop={(e) => {
-                        setDragOver(null);
-                        void moveToGroup(e.dataTransfer.getData("text/x-dbui-conn"), g);
-                      }}
-                    >
-                      ▾ {g || "Ungrouped"} <span>{inGroup.length}</span>
-                    </div>
-                  )}
-                  {inGroup.map((c) => {
-                    const i = ordered.indexOf(c);
-                    const demo = isDemo(c);
-                    return (
-                      <div
-                        key={c.id}
-                        className={"crow" + (i === idx ? " on" : "")}
-                        role="option"
-                        aria-selected={i === idx}
-                        tabIndex={-1}
-                        draggable={!demo}
-                        onDragStart={(e) => e.dataTransfer.setData("text/x-dbui-conn", c.id)}
-                        onClick={(e) => void open(c, e.altKey || e.metaKey)}
-                        onMouseEnter={() => setIdx(i)}
-                        style={{ cursor: "pointer", ["--envc" as string]: ENV_VAR[c.env] }}
-                      >
-                        <EngineBadge driver={c.driver} demo={demo} />
-                        <span className="cn">
-                          <b>
-                            <Highlight text={c.name} needle={needle} />
-                          </b>
-                          <small>
-                            <Highlight text={demo ? "Sample data in memory, not a real database" : connectionSubtitle(c) || c.driver} needle={needle} />
-                          </small>
-                        </span>
-                        {demo && <span className="tag demo">Demo data</span>}
-                        {c.readOnly && <span className="faint" title="Read-only">🔒</span>}
-                        <EnvTag env={c.env} />
-                        {!demo && (
-                          <span className="acts" onClick={(e) => e.stopPropagation()}>
-                            <button className="btn icon ghost" title="Edit" onClick={() => setSheet({ kind: "form", driver: c.driver, existing: c })} aria-label={`Edit ${c.name}`}>
-                              <Icon name="edit" />
-                            </button>
-                            <button className="btn icon ghost" title="Delete" onClick={() => setSheet({ kind: "delete", conn: c })} aria-label={`Delete ${c.name}`}>
-                              <Icon name="trash" />
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-          <div className="faint" style={{ fontSize: 13 }}>
-            <kbd>↑</kbd> <kbd>↓</kbd> + <kbd>Enter</kbd> connects · <kbd>⌥</kbd>-click opens in a new tab · drag a connection onto a group · <kbd>{MOD}O</kbd> open file
-          </div>
-        </div>
-
-        <aside className="side-col">
-          <div>
-            <h2>Files</h2>
-            <div className="flist">
-              <button className="frow" onClick={() => void openFile()} disabled={!canPickFiles()}>
-                <span className="fn" style={{ fontFamily: "var(--font-ui)" }}>
-                  Open file…
-                </span>
-                <span className="sub">
-                  <kbd>{MOD}O</kbd>
-                </span>
+          {!empty && (
+            <div className="home-tools">
+              <button
+                className="btn"
+                onClick={() => setSheet({ kind: "picker" })}
+                title={`New connection (${MOD}N)`}
+              >
+                <Icon name="plus" />
+                New connection
               </button>
-              {files.map((f) => (
-                <button key={f.id} className="frow" onClick={() => navigate(f.src ? { name: "file", src: f.src } : { name: "file", fileHandleId: f.id })} title={f.src ?? f.name}>
+              <button
+                className="btn"
+                disabled={!selected || demoSel}
+                onClick={() =>
+                  selected &&
+                  setSheet({
+                    kind: "form",
+                    driver: selected.driver,
+                    existing: selected,
+                  })
+                }
+                title={
+                  demoSel
+                    ? "The demo can't be edited"
+                    : "Edit the selected connection"
+                }
+              >
+                <Icon name="edit" />
+                Edit
+              </button>
+              <button
+                className="btn icon"
+                disabled={!selected || demoSel}
+                aria-label="More connection actions"
+                aria-haspopup="menu"
+                title="Duplicate, move to group, export, delete"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setMenu({ x: r.left, y: r.bottom + 4 });
+                }}
+              >
+                <Icon name="more" />
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="home-files" aria-label="Files">
+          <div className="home-card-title">
+            <h2>Files</h2>
+            <button
+              className="btn ghost sm"
+              onClick={() => void openFile()}
+              disabled={!canPickFiles()}
+              title={`Open a CSV, JSONL or Parquet file (${MOD}O)`}
+            >
+              <Icon name="folder-open" />
+              Open file…
+            </button>
+          </div>
+          {files.length > 0 ? (
+            <div className="home-recent">
+              {files.slice(0, 5).map((f) => (
+                <button
+                  key={f.id}
+                  className="frow"
+                  onClick={() =>
+                    navigate(
+                      f.src
+                        ? { name: "file", src: f.src }
+                        : { name: "file", fileHandleId: f.id },
+                    )
+                  }
+                  title={f.src ?? f.name}
+                >
+                  <Icon name="file" className="ico" />
                   <span className="fn">{f.name}</span>
                   <span className="sub">
-                    {f.size !== undefined ? fmtBytes(f.size) + " · " : f.src ? "URL · " : ""}
+                    {f.size !== undefined
+                      ? fmtBytes(f.size) + " · "
+                      : f.src
+                        ? "URL · "
+                        : ""}
                     {fmtAgo(f.openedAt)}
                   </span>
                 </button>
               ))}
-              {files.length === 0 && (
-                <div className="frow faint" style={{ cursor: "default" }}>
-                  CSV, JSONL, Parquet … or drop a file here
-                </div>
-              )}
             </div>
-          </div>
-          <div>
-            <h2>Runner</h2>
-            <RunnerCard status={runner.status} onCheck={runner.check} />
-          </div>
-          <div className="rcard">
-            <div className="row">
-              <b>Settings</b>
-            </div>
-            <p>Browser preview for data files, theme and keys.</p>
-            <div className="row">
-              <button className="btn" onClick={() => navigate({ name: "settings" })}>
-                Open Settings
-              </button>
-            </div>
-          </div>
-        </aside>
+          ) : (
+            <p className="faint home-hint">
+              CSV, JSONL, Parquet … or drop a file anywhere on this page.
+            </p>
+          )}
+        </section>
+
+        <RunnerLine status={runner.status} onCheck={runner.check} />
       </div>
 
+      {menu && selected && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "Duplicate", onClick: () => void duplicate(selected) },
+            {
+              label: "Move to group…",
+              onClick: () => setSheet({ kind: "group", conn: selected }),
+            },
+            {
+              label: "Export…",
+              hint: "JSON, no secrets",
+              onClick: () => exportConn(selected),
+            },
+            { separator: true, label: "" },
+            {
+              label: "Delete…",
+              onClick: () => setSheet({ kind: "delete", conn: selected }),
+            },
+          ]}
+        />
+      )}
       {sheet?.kind === "picker" && (
         <EnginePicker
           onCancel={() => setSheet(null)}
-          onPick={(driver, prefill) => setSheet({ kind: "form", driver, prefill })}
+          onPick={(driver, prefill) =>
+            setSheet({ kind: "form", driver, prefill })
+          }
           onNewGroup={() => setSheet({ kind: "group" })}
         />
       )}
@@ -282,18 +425,31 @@ export function Home() {
           onCancel={() => setSheet(null)}
           onSaved={(c, connect) => {
             setSheet(null);
+            select(c);
             reload();
-            if (connect) void open(c);
+            if (connect) open(c);
             else toast(`Saved ${c.name}`);
           }}
         />
       )}
       {sheet?.kind === "group" && (
-        <NewGroup
+        <MoveToGroup
+          conn={sheet.conn}
+          groups={allGroups}
           onCancel={() => setSheet(null)}
-          onCreate={(name) => {
-            setExtraGroups((g) => [...new Set([...g, name])]);
+          onDone={async (name) => {
+            const conn = sheet.conn;
             setSheet(null);
+            if (name) setExtraGroups((g) => [...new Set([...g, name])]);
+            if (conn) {
+              await saveConnection({ ...conn, group: name || undefined });
+              reload();
+              toast(
+                name
+                  ? `Moved ${conn.name} to ${name}`
+                  : `${conn.name} is ungrouped`,
+              );
+            }
           }}
         />
       )}
@@ -309,10 +465,13 @@ export function Home() {
               <button
                 className="btn danger"
                 onClick={async () => {
-                  await deleteConnection(sheet.conn.id);
-                  if (sheet.conn.secretRef) await forgetSecret(sheet.conn.secretRef);
+                  const conn = sheet.conn;
+                  await deleteConnection(conn.id);
+                  if (conn.secretRef) await forgetSecret(conn.secretRef);
                   setSheet(null);
+                  setSelectedId(null);
                   reload();
+                  toast(`Deleted ${conn.name}`);
                 }}
               >
                 Delete
@@ -320,32 +479,123 @@ export function Home() {
             </>
           }
         >
-          <p>Removes the saved settings and any password dbui remembered for it. The database itself is not touched.</p>
+          <p>
+            Removes the saved settings and any password dbui remembered for it.
+            The database itself is not touched.
+          </p>
         </Modal>
       )}
     </div>
   );
 }
 
-function NewGroup({ onCreate, onCancel }: { onCreate: (name: string) => void; onCancel: () => void }) {
-  const [name, setName] = useState("");
+/** One line: runner state, with Install / Check again when it isn't usable. */
+function RunnerLine({
+  status,
+  onCheck,
+}: {
+  status: RunnerStatus;
+  onCheck: () => void;
+}) {
+  const dot =
+    status.state === "ok"
+      ? "ok"
+      : status.state === "checking"
+        ? ""
+        : status.state === "crashed"
+          ? "bad"
+          : "warn";
+  const text =
+    status.state === "checking"
+      ? "Checking for the dbui runner…"
+      : status.state === "ok"
+        ? `dbui runner ${status.version}: Postgres and Redis available`
+        : status.state === "outdated"
+          ? `dbui runner ${status.version} is out of date`
+          : status.state === "crashed"
+            ? "dbui runner stopped. Logs: ~/Library/Logs/dbui/runner.log"
+            : status.state === "unavailable"
+              ? status.message
+              : "Postgres and Redis need the dbui runner";
+  const canInstall = status.state === "missing" || status.state === "outdated";
+  return (
+    <div
+      className="home-runner"
+      role="status"
+      title={
+        status.state === "missing"
+          ? "A small helper app. It installs into your home folder: no admin password, no Homebrew."
+          : undefined
+      }
+    >
+      <span className={"dot " + dot} />
+      <span className="txt">{text}</span>
+      {canInstall && (
+        <button className="btn sm" onClick={() => void installRunner()}>
+          <Icon name="download" />
+          {status.state === "outdated" ? "Update" : "Install"}
+        </button>
+      )}
+      {status.state !== "ok" && status.state !== "checking" && (
+        <button className="btn sm ghost" onClick={onCheck}>
+          Check again
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MoveToGroup(props: {
+  conn?: SavedConnection;
+  groups: string[];
+  onDone: (group: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(props.conn?.group ?? "");
+  const listId = "home-group-list";
   return (
     <Modal
-      title="New group"
-      onClose={onCancel}
+      title={props.conn ? `Move ${props.conn.name} to group` : "New group"}
+      onClose={props.onCancel}
       actions={
         <>
-          <button className="btn" onClick={onCancel}>
+          <button className="btn" onClick={props.onCancel}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!name.trim()} onClick={() => onCreate(name.trim())}>
-            Create
+          <button
+            className="btn primary"
+            disabled={!props.conn && !name.trim()}
+            onClick={() => props.onDone(name.trim())}
+          >
+            {props.conn ? "Move" : "Create"}
           </button>
         </>
       }
     >
-      <p>Drag connections onto the group to move them.</p>
-      <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && onCreate(name.trim())} aria-label="Group name" />
+      <p>
+        {props.conn
+          ? "Pick a group or type a new name. Leave it empty to ungroup."
+          : "Then use Move to group in the ⋯ menu to put connections in it."}
+      </p>
+      <input
+        className="input"
+        autoFocus
+        list={listId}
+        value={name}
+        placeholder="Group name"
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) =>
+          e.key === "Enter" &&
+          (props.conn || name.trim()) &&
+          props.onDone(name.trim())
+        }
+        aria-label="Group name"
+      />
+      <datalist id={listId}>
+        {props.groups.map((g) => (
+          <option key={g} value={g} />
+        ))}
+      </datalist>
     </Modal>
   );
 }

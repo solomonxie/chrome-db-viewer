@@ -45,12 +45,14 @@ async function until(fn: () => boolean, timeout = 3000) {
   }
 }
 
-test("home lists the demo connection, labelled as demo data", async () => {
+test("home picks the demo connection in the dropdown, labelled as sample data", async () => {
   await render("#home");
   await wait(20);
-  expect(host!.textContent).toContain("Demo database");
-  expect(host!.textContent).toContain("Demo data");
-  expect(host!.querySelector("input[aria-label='Search for connection']")).not.toBeNull();
+  const box = host!.querySelector<HTMLInputElement>("input[role=combobox][aria-label='Connection']");
+  expect(box).not.toBeNull();
+  expect(box!.value).toBe("Demo database");
+  expect(host!.textContent).toContain("Sample data in memory");
+  expect(host!.textContent).toContain("No connections yet");
 });
 
 test("demo connection tab connects, shows the tree and opens a table", async () => {

@@ -1,6 +1,8 @@
-// Settings: Browser preview (DESIGN.md §3.12). Master switch → all-sites permission request →
-// per-extension checklist → chrome.storage.local "previewSettings". The background worker
-// watches that key and rebuilds the redirect rules.
+// Settings: Browser preview (DESIGN.md §3.12), on by default with the all-sites host permission
+// granted at install. Master switch + per-extension checklist → chrome.storage.local
+// "previewSettings"; the background worker watches that key and rebuilds the redirect rules.
+// If the user restricted dbui's site access in Chrome, a [Fix] note asks for it again.
+// Backup (§3.16): export/import and the runner's automatic backup.
 
 import { useEffect, useState } from "react";
 import {
@@ -11,6 +13,8 @@ import { navigate } from "../lib/route";
 import { useToast } from "../components/ui";
 import { RunnerCard, useRunnerStatus } from "../home/RunnerCard";
 import { Icon } from "../components/Icon";
+import { Appearance } from "./Appearance";
+import { BackupSection } from "./BackupSection";
 
 type GroupKey = keyof typeof PREVIEW_GROUPS;
 
@@ -21,13 +25,12 @@ const GROUP_INFO: Record<GroupKey, { label: string; note?: string }> = {
   databases: { label: "Databases" },
   json: { label: "JSON", note: "Off by default: Chrome's own JSON view is often what you want for API responses." },
   compressed: { label: "Compressed", note: "Only on top of a checked data type, e.g. .csv.gz. A plain .tar.gz still downloads." },
-  images: { label: "Images", note: "Opens in dbui's media viewer. Off by default." },
-  video: { label: "Video", note: "Opens in dbui's media viewer. Off by default." },
 };
 
 export function Settings({ section }: { section?: string }) {
   const [s, setS] = useState<PreviewSettings | null>(null);
-  const [granted, setGranted] = useState(false);
+  // null until checked, so the "site access is off" note doesn't flash on load.
+  const [granted, setGranted] = useState<boolean | null>(null);
   const [domain, setDomain] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const toast = useToast();
@@ -45,7 +48,15 @@ export function Settings({ section }: { section?: string }) {
       if (area === "local" && "previewSettings" in changes) setS(mergeSettings(changes.previewSettings?.newValue));
     };
     chrome.storage.onChanged.addListener(on);
-    return () => chrome.storage.onChanged.removeListener(on);
+    // Site access can be changed on chrome://extensions while this page is open.
+    const recheck = () => void hasPreviewHostAccess().then(setGranted);
+    chrome.permissions?.onAdded?.addListener(recheck);
+    chrome.permissions?.onRemoved?.addListener(recheck);
+    return () => {
+      chrome.storage.onChanged.removeListener(on);
+      chrome.permissions?.onAdded?.removeListener(recheck);
+      chrome.permissions?.onRemoved?.removeListener(recheck);
+    };
   }, [inExtension]);
 
   useEffect(() => {
@@ -64,17 +75,20 @@ export function Settings({ section }: { section?: string }) {
 
   const toggleMaster = async (on: boolean) => {
     if (!s) return;
+    // Off only removes the redirect rule; the install-time site access stays as it is.
     if (!on) return save({ ...s, enabled: false });
+    await save({ ...s, enabled: true, extensions: s.extensions.length ? s.extensions : [...DEFAULT_PREVIEW_SETTINGS.extensions] });
+    toast("Browser preview is on");
+  };
+
+  /** Fallback when site access was restricted in Chrome's extension settings. */
+  const fixAccess = async () => {
+    setErr(null);
     try {
       // Must run in the click handler: Chrome only shows the prompt for a user gesture.
       const ok = await chrome.permissions.request({ origins: PREVIEW_ORIGINS });
       setGranted(ok);
-      if (!ok) {
-        setErr("Chrome didn't grant access to all sites, so dbui can't catch data-file links. Nothing was changed.");
-        return;
-      }
-      await save({ ...s, enabled: true, extensions: s.extensions.length ? s.extensions : [...DEFAULT_PREVIEW_SETTINGS.extensions] });
-      toast("Browser preview is on");
+      if (!ok) setErr("Chrome didn't grant access to all sites, so dbui can't catch data-file links.");
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -113,11 +127,14 @@ export function Settings({ section }: { section?: string }) {
     <div className="settings">
       <div className="settings-inner">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button className="btn" onClick={() => navigate({ name: "home" })}>
-            ‹ Home
+          <button className="btn ghost" onClick={() => navigate({ name: "home" })}>
+            <Icon name="back" className="ico" />
+            Home
           </button>
           <h1>Settings</h1>
         </div>
+
+        <Appearance />
 
         <section id="settings-preview">
           <h2>Browser preview</h2>
@@ -132,14 +149,14 @@ export function Settings({ section }: { section?: string }) {
                 <span>
                   <b>Open data files from the browser in dbui</b>
                   <br />
-                  <small className="muted">Turning this on asks Chrome for access to all sites. Rules only match a file opened as the tab's address.</small>
+                  <small className="muted">On by default. Rules only match a file opened as the tab's address; turning this off removes them.</small>
                 </span>
               </label>
-              {s.enabled && !granted && (
-                <div className="note">
-                  <b>Site access was removed.</b> The rules stay off until you grant it again.{" "}
-                  <button className="btn" onClick={() => void toggleMaster(true)}>
-                    Grant access
+              {s.enabled && granted === false && (
+                <div className="note" role="alert">
+                  <b>Site access is off for dbui in Chrome.</b> Data-file links download as usual until it's back.{" "}
+                  <button className="btn" onClick={() => void fixAccess()}>
+                    Fix
                   </button>
                 </div>
               )}
@@ -211,6 +228,8 @@ export function Settings({ section }: { section?: string }) {
           {err && <div className="err">{err}</div>}
         </section>
 
+        <BackupSection />
+
         <section id="settings-runner">
           <h2>dbui runner</h2>
           <RunnerCard status={runner.status} onCheck={runner.check} />
@@ -222,7 +241,7 @@ export function Settings({ section }: { section?: string }) {
         <section id="settings-privacy">
           <h2>Secrets and storage</h2>
           <p className="muted" style={{ margin: 0, lineHeight: 1.5, fontSize: 14.5 }}>
-            Connection settings live in this browser's IndexedDB. Passwords are kept in memory for the session, or in chrome.storage.local when you choose "Remember in this browser". Nothing is synced to your Google account, and secrets never appear in exports.
+            Connection settings live in this browser's IndexedDB. Passwords are kept in memory for the session, or in chrome.storage.local when you choose "Remember in this browser". Nothing is synced to your Google account, and secrets never appear in exports or backups.
           </p>
         </section>
       </div>

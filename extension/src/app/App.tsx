@@ -8,6 +8,9 @@ import { FileSheet } from "./file/FileSheet";
 import { Settings } from "./settings/Settings";
 import { DownloadPrompt } from "./settings/DownloadPrompt";
 import { ChainView } from "./chains/ChainView";
+import { migrateSavedQueries } from "./collections/migrateSaved";
+import { RestoreBanner, useRestoreOffer } from "./home/RestoreBanner";
+import { startAutoBackup } from "./store/autoBackup";
 
 function useRoute(): Route {
   const read = () => parseRoute(location.hash, location.search);
@@ -26,8 +29,19 @@ function useRoute(): Route {
 
 export function App() {
   const route = useRoute();
+  // Bumped after a backup restore so Home reloads its lists.
+  const [homeKey, setHomeKey] = useState(0);
+  const restore = useRestoreOffer(route.name === "home");
 
   useKeys({ "mod+shift+h": () => navigate({ name: "home" }) });
+
+  // Old "Saved" tab rows move into the "Saved queries" collection once; later runs find nothing to do.
+  useEffect(() => {
+    void migrateSavedQueries().catch(() => {});
+  }, []);
+
+  // Copies saved data to the runner a few seconds after each change (§3.16).
+  useEffect(() => startAutoBackup(), []);
 
   useEffect(() => {
     document.title =
@@ -37,7 +51,22 @@ export function App() {
   let page;
   switch (route.name) {
     case "home":
-      page = <Home />;
+      page = (
+        <Home
+          key={homeKey}
+          banner={
+            restore.offer ? (
+              <RestoreBanner
+                offer={restore.offer}
+                onDone={(restored) => {
+                  restore.dismiss();
+                  if (restored) setHomeKey((k) => k + 1);
+                }}
+              />
+            ) : undefined
+          }
+        />
+      );
       break;
     case "connection":
       page = <ConnectionTab key={route.connectionId} connectionId={route.connectionId} />;

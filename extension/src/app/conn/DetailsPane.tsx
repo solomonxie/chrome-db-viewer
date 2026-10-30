@@ -9,6 +9,7 @@ import { cellsEqual, editCell, pendingValue, cellStatus } from "../lib/changes";
 import { isBoolType, isJsonType, isNumericType, isTimeType } from "../lib/coltypes";
 import { cellText, parseCellInput } from "../lib/format";
 import type { ConnCtx, DetailsSource } from "./model";
+import { Icon } from "../components/Icon";
 
 const MULTI = Symbol("multi");
 
@@ -48,10 +49,9 @@ export function DetailsPane({ ctx, source }: { ctx: ConnCtx; source: DetailsSour
 
   return (
     <div className="pane-right">
-      <div className="ptabs" role="tablist">
-        <button role="tab" aria-selected="true">
-          Details
-        </button>
+      <div className="pane-title">
+        Details
+        {rows.length > 0 && <span className="faint">{rows.length === 1 ? "1 row" : `${rows.length} rows`}</span>}
       </div>
       <div className="psearch">
         <input placeholder="Search for field" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search for field" />
@@ -67,7 +67,7 @@ export function DetailsPane({ ctx, source }: { ctx: ConnCtx; source: DetailsSour
             return (
               <div key={col.name} className={"field" + (edited ? " edit" : "")}>
                 <div className="fh">
-                  {col.primaryKey && <span className="faint">⚿</span>}
+                  {col.primaryKey && <Icon name="key" className="ico sm pk" title="Primary key" />}
                   <b>
                     <Highlight text={col.name} needle={needle} />
                   </b>

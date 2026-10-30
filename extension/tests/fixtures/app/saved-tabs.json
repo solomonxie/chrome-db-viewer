@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "active": 2,
+  "tabs": [
+    { "kind": "table", "pos": 0, "stack": [{ "path": ["public", "tables", "orders"], "filters": [], "joiner": "AND", "showFilters": false, "sort": [], "applied": [], "appliedJoiner": "AND" }] },
+    { "kind": "table", "pos": 1, "stack": [
+      { "path": ["public", "tables", "order_items"], "filters": [], "joiner": "AND", "showFilters": false, "sort": [], "applied": [], "appliedJoiner": "AND" },
+      { "path": ["public", "tables", "customers"], "filters": [], "joiner": "AND", "showFilters": false, "sort": [{ "column": "name", "dir": "asc" }], "applied": [], "appliedJoiner": "AND" }
+    ] },
+    { "kind": "query", "title": "Top customers", "sql": "SELECT * FROM customers LIMIT 5", "namedQueryId": "nq_top" },
+    { "kind": "bogus" },
+    { "kind": "table", "stack": [{ "path": [] }] }
+  ]
+}

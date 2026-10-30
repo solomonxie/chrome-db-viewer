@@ -11,7 +11,7 @@ export function useRunnerStatus() {
   return { status, check };
 }
 
-async function installRunner() {
+export async function installRunner() {
   // Download the per-user .pkg, then open it once Chrome has it on disk (§5.2).
   const id = await chrome.downloads.download({ url: RUNNER_PKG_URL });
   const onChanged = (d: chrome.downloads.DownloadDelta) => {

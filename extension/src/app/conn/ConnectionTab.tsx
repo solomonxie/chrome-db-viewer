@@ -2,20 +2,21 @@
 // table and query tabs, right Details pane, pending ChangeSet with review drawer.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Capabilities, ConnectionConfig, Driver, ObjectPath, ObjectType, TableSchema } from "@core/types";
-import { connectionSubtitle, loadConnection, needsSecret, openDriver, resolveSecret, saveConnection, secretMode, withSecret, type SavedConnection } from "../lib/connections";
+import type { Capabilities, ConnectionConfig, Driver, DriverId, ObjectPath, ObjectType, TableSchema } from "@core/types";
+import { connectionSubtitle, listConnections, loadConnection, openConnection, needsSecret, openDriver, resolveSecret, saveConnection, secretMode, withSecret, type SavedConnection } from "../lib/connections";
 import { isDemo } from "../demo/demoDriver";
 import { clearTable, emptyPending, pendingCount, toChangeSet, undo, type PendingState } from "../lib/changes";
 import { tableRef } from "../lib/filters";
 import { ENGINE, ENV_VAR } from "../lib/format";
 import { ALT, MOD, useKeys } from "../lib/keys";
-import { navigate } from "../lib/route";
+import { navigate, openConnectionTab } from "../lib/route";
 import { classifyRunnerError, runnerDrivers, type RunnerStatus } from "../lib/runner";
 import * as db from "../store/db";
 import { secretStore, sessionSecrets } from "../store/secrets";
 import { CommandPalette, Modal, useToast, type PaletteCommand } from "../components/ui";
 import { RunnerCard } from "../home/RunnerCard";
-import { ConnectionForm } from "../home/NewConnection";
+import { ConnectionForm, EnginePicker } from "../home/NewConnection";
+import type { FormState } from "../lib/connForm";
 import { DetailsPane } from "./DetailsPane";
 import { LeftPane } from "./LeftPane";
 import { Splitter, usePaneWidth } from "../components/Splitter";
@@ -24,7 +25,10 @@ import { ReviewDrawer } from "./ReviewDrawer";
 import { TableView } from "./TableView";
 import { newEntry, pathKey, type ConnCtx, type DetailsSource, type EditMode, type TableEntry, type WorkTab } from "./model";
 import { historyTarget } from "./historyTab";
-import { Icon } from "../components/Icon";
+import { closeIds, duplicateTab, findTableTab, loadSavedTabs, moveTab, nextActive, othersOf, rightOf, saveTabs } from "./tabs/tabState";
+import { CloseDirtyConfirm, TabStrip } from "./tabs/TabStrip";
+import { Icon, objectIcon } from "../components/Icon";
+import { ConnectionPicker } from "../components/ConnectionPicker";
 import type { NamedQuery } from "../../collections/model";
 
 type Phase =
@@ -38,6 +42,23 @@ type Phase =
 
 let tabSeq = 0;
 const tabId = () => `t${++tabSeq}`;
+
+/** The Details pane starts hidden; turning it on is remembered for the whole app. */
+const DETAILS_KEY = "dbui.pane.details.visible";
+function loadDetailsVisible(): boolean {
+  try {
+    return localStorage.getItem(DETAILS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function saveDetailsVisible(v: boolean) {
+  try {
+    localStorage.setItem(DETAILS_KEY, v ? "1" : "0");
+  } catch {
+    /* storage blocked */
+  }
+}
 
 function editModeFor(cfg: ConnectionConfig, caps: Capabilities): EditMode {
   if (!caps.editableRows) return "none";
@@ -224,10 +245,14 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const { cfg, driver, caps } = props;
   const [readOnly, setReadOnly] = useState(cfg.readOnly);
   const [pending, setPendingState] = useState<PendingState>(emptyPending);
-  const [tabs, setTabs] = useState<WorkTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  // Open tabs come back from localStorage (per connection) on mount.
+  const [restored] = useState(() => loadSavedTabs(cfg.id, tabId));
+  const [tabs, setTabs] = useState<WorkTab[]>(restored.tabs);
+  const [activeTab, setActiveTab] = useState<string | null>(restored.active);
   const [showLeft, setShowLeft] = useState(true);
-  const [showRight, setShowRight] = useState(true);
+  const [showRight, setShowRight] = useState(loadDetailsVisible);
+  useEffect(() => saveDetailsVisible(showRight), [showRight]);
+  const [closing, setClosing] = useState<null | { ids: string[]; names: string[]; tables: ObjectPath[]; count: number }>(null);
   const leftPane = usePaneWidth("dbui.pane.left", 280, 200, 560);
   const rightPane = usePaneWidth("dbui.pane.right", 340, 260, 720);
   const [details, setDetails] = useState<DetailsSource | null>(null);
@@ -236,11 +261,13 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const [applyErr, setApplyErr] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [editing, setEditing] = useState(false);
+  /** "New connection…" from the top-bar switcher: engine picker, then the form, in place. */
+  const [creating, setCreating] = useState<null | { step: "pick" } | { step: "form"; driver: DriverId; prefill?: Partial<FormState> }>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [treeKey, setTreeKey] = useState(0);
   const [historyVersion, setHistoryVersion] = useState(0);
   /** Query tabs bound to a named query (Collections): tab id → named query id. */
-  const [boundTabs, setBoundTabs] = useState<Record<string, string>>({});
+  const [boundTabs, setBoundTabs] = useState<Record<string, string>>(restored.bound);
   const [log, setLog] = useState<{ sql: string; ms?: number; rows?: number; error?: string; at: number }[]>([]);
   const [showLog, setShowLog] = useState(false);
   const nodeTypes = useRef(new Map<string, ObjectType>()).current;
@@ -301,27 +328,31 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const active = tabs.find((t) => t.id === activeTab) ?? null;
   const activeEntry = active?.kind === "table" ? active.stack[active.pos]! : null;
 
+  // Remember the open tabs for this connection. Each browser tab writes its own list; the last
+  // write wins, which is fine for two windows on the same connection.
+  useEffect(() => {
+    saveTabs(cfg.id, tabs, activeTab, boundTabs);
+  }, [cfg.id, tabs, activeTab, boundTabs]);
+
+  /** Opens a table in its own tab, or switches to the tab already showing it. ⌥/⌘ forces a new one. */
   const openTable = (path: ObjectPath, newTab = false) => {
-    if (!newTab && active?.kind === "table") {
-      if (pathKey(active.stack[active.pos]!.path) === pathKey(path)) return;
-      pushEntry(newEntry(path), false);
-      return;
-    }
-    const existing = !newTab && tabs.find((t) => t.kind === "table" && pathKey(t.stack[t.pos]!.path) === pathKey(path));
+    const existing = !newTab && findTableTab(tabs, path);
     if (existing) return setActiveTab(existing.id);
     const t: WorkTab = { id: tabId(), kind: "table", stack: [newEntry(path)], pos: 0 };
     setTabs((ts) => [...ts, t]);
     setActiveTab(t.id);
   };
 
-  const pushEntry = (entry: TableEntry, newTab: boolean) => {
-    if (newTab || active?.kind !== "table") {
+  /** FK navigation: pushes onto the back/forward stack of the tab it came from (or a new tab). */
+  const pushEntry = (entry: TableEntry, newTab: boolean, fromTab = activeTab) => {
+    const from = tabs.find((t) => t.id === fromTab);
+    if (newTab || from?.kind !== "table") {
       const t: WorkTab = { id: tabId(), kind: "table", stack: [entry], pos: 0 };
       setTabs((ts) => [...ts, t]);
       setActiveTab(t.id);
       return;
     }
-    setTabs((ts) => ts.map((t) => (t.id === active.id && t.kind === "table" ? { ...t, stack: [...t.stack.slice(0, t.pos + 1), entry], pos: t.pos + 1 } : t)));
+    setTabs((ts) => ts.map((t) => (t.id === from.id && t.kind === "table" ? { ...t, stack: [...t.stack.slice(0, t.pos + 1), entry], pos: t.pos + 1 } : t)));
   };
 
   const patchEntry = (tabIdArg: string, patch: Partial<TableEntry>) =>
@@ -359,20 +390,56 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     openSql(sql, "History");
   };
 
-  const closeTab = (id: string) => {
-    setTabs((ts) => {
-      const i = ts.findIndex((t) => t.id === id);
-      const next = ts.filter((t) => t.id !== id);
-      if (id === activeTab) setActiveTab(next[Math.min(i, next.length - 1)]?.id ?? null);
-      return next;
-    });
+  const removeTabs = (ids: string[]) => {
+    const next = closeIds(tabs, ids);
+    setActiveTab(nextActive(tabs, next, activeTab));
+    setTabs(next);
+    setBoundTabs((b) => Object.fromEntries(Object.entries(b).filter(([tid]) => !ids.includes(tid))));
   };
+
+  /** Closes tabs, asking first when a closed tab is the last one showing a table with pending edits. */
+  const closeTabs = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const remaining = closeIds(tabs, ids);
+    const stillOpen = new Set(remaining.flatMap((t) => (t.kind === "table" ? [pathKey(t.stack[t.pos]!.path)] : [])));
+    const dirty = new Map<string, ObjectPath>();
+    for (const t of tabs) {
+      if (!ids.includes(t.id) || t.kind !== "table") continue;
+      const p = t.stack[t.pos]!.path;
+      const k = pathKey(p);
+      if (!stillOpen.has(k) && pending.items.some((i) => pathKey(i.table) === k)) dirty.set(k, p);
+    }
+    if (dirty.size === 0) return removeTabs(ids);
+    const tables = [...dirty.values()];
+    const keys = new Set(dirty.keys());
+    setClosing({ ids, tables, names: tables.map((p) => p.at(-1) ?? "table"), count: pending.items.filter((i) => keys.has(pathKey(i.table))).length });
+  };
+  const closeTab = (id: string) => closeTabs([id]);
+
+  const duplicate = (id: string) => {
+    const nid = tabId();
+    setTabs((ts) => duplicateTab(ts, id, nid));
+    setActiveTab(nid);
+  };
+
+  const cycleTab = (delta: number) => {
+    if (tabs.length === 0) return;
+    const i = tabs.findIndex((t) => t.id === activeTab);
+    setActiveTab(tabs[(i + delta + tabs.length) % tabs.length]!.id);
+  };
+
+  const openInNewWindow = () => openConnectionTab(cfg.id);
+  // Saved connections, for the top-bar switcher and the palette's "Open connection…" items.
+  const [allConns, setAllConns] = useState<SavedConnection[]>([]);
+  useEffect(() => {
+    void listConnections().then(setAllConns);
+  }, [palette]);
 
   const count = pendingCount(pending);
 
   const apply = async () => {
     if (count === 0) return;
-    if (readOnly) return props.toast("Read-only: turn off the lock to commit.");
+    if (readOnly) return props.toast("Read-only: switch to Read & write to commit.");
     setApplying(true);
     setApplyErr(null);
     const set = toChangeSet(pending);
@@ -423,6 +490,13 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       "mod+]": () => go(1),
       "alt+t": () => openSql(),
       "alt+w": () => activeTab && closeTab(activeTab),
+      "mod+alt+arrowleft": () => cycleTab(-1),
+      "mod+alt+arrowright": () => cycleTab(1),
+      "ctrl+tab": () => cycleTab(1),
+      "ctrl+shift+tab": () => cycleTab(-1),
+      // Ctrl is "mod" off macOS; Chrome usually keeps Ctrl+Tab for itself there.
+      "mod+tab": () => cycleTab(1),
+      "mod+shift+tab": () => cycleTab(-1),
       escape: () => drawer && setDrawer(null),
     },
     { notInFields: ["mod+z"] },
@@ -439,6 +513,9 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
   const commands: PaletteCommand[] = useMemo(() => {
     const out: PaletteCommand[] = [
       { id: "sql", label: "New query tab", hint: `${ALT}T`, run: () => openSql() },
+      { id: "close-tab", label: "Close tab", hint: `${ALT}W`, run: () => activeTab && closeTab(activeTab) },
+      { id: "close-others", label: "Close other tabs", run: () => activeTab && closeTabs(othersOf(tabs, activeTab)) },
+      { id: "new-window", label: "Open connection in new browser tab", run: openInNewWindow },
       { id: "review", label: "Review pending changes", hint: `${MOD}⇧P`, run: () => setDrawer({ confirm: false }) },
       { id: "commit", label: "Commit changes", hint: `${MOD}S`, run: commit },
       { id: "refresh", label: "Refresh", hint: `${MOD}R`, run: () => setReloadKey((k) => k + 1) },
@@ -450,6 +527,11 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       { id: "settings", label: "Settings", run: () => navigate({ name: "settings" }) },
       { id: "edit", label: "Connection settings…", run: () => setEditing(true) },
     ];
+    // Opening another connection always opens a new browser tab; this one stays.
+    for (const c of allConns) {
+      if (c.id === cfg.id) continue;
+      out.push({ id: "c:" + c.id, label: `Open connection ${c.name}`, hint: "new tab", run: () => void openConnection(c) });
+    }
     for (const [k, type] of nodeTypes) {
       if (type === "table" || type === "view" || type === "materialized_view") {
         const p = JSON.parse(k) as string[];
@@ -458,13 +540,24 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [palette, readOnly, count]);
+  }, [palette, readOnly, count, tabs, activeTab, allConns]);
 
   const envc = ENV_VAR[cfg.env];
   const demo = isDemo(cfg);
   const engineName = demo ? "Demo" : (ENGINE[cfg.driver]?.name ?? cfg.driver);
   const db_ = String(cfg.options.database ?? cfg.options.projectId ?? cfg.options.fileName ?? "");
   const tableLabel = activeEntry ? ctx.sqlName(activeEntry.path).replace(/["`]/g, "") : active?.kind === "query" ? active.title : "";
+
+  const tabInfo = (t: WorkTab) => {
+    if (t.kind === "query") {
+      const named = !!boundTabs[t.id];
+      return { label: t.title, title: named ? `${t.title} (saved query)` : t.title, icon: named ? ("named-query" as const) : ("query" as const), dirty: false };
+    }
+    const path = t.stack[t.pos]!.path;
+    const k = pathKey(path);
+    const isView = /view/.test(nodeTypes.get(k) ?? "");
+    return { label: path.at(-1) ?? "table", title: ctx.sqlName(path), icon: objectIcon(nodeTypes.get(k)) ?? (isView ? "view" : "table"), dirty: pending.items.some((i) => pathKey(i.table) === k) };
+  };
 
   const cols = `${showLeft ? `${leftPane.width}px var(--splitter-w) ` : ""}minmax(0, 1fr)${showRight ? ` var(--splitter-w) ${rightPane.width}px` : ""}`;
 
@@ -477,12 +570,37 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         <button className="btn icon ghost" title="Connections (Home)" onClick={() => navigate({ name: "home" })} aria-label="Connections">
           <Icon name="home" />
         </button>
-        <button className="btn icon ghost" title={readOnly ? "Read-only: click to allow edits" : "Click to make read-only"} aria-pressed={readOnly} onClick={toggleReadOnly} aria-label="Read-only">
-          <Icon name={readOnly ? "lock" : "unlock"} />
-        </button>
         <button className="btn ghost" title={`New query tab (${ALT}T)`} onClick={() => openSql()}>
+          <Icon name="query" />
           SQL
         </button>
+        <button
+          className={"rotoggle" + (readOnly ? " on" : "")}
+          role="switch"
+          aria-checked={readOnly}
+          aria-pressed={readOnly}
+          onClick={toggleReadOnly}
+          aria-label="Read-only"
+          title={readOnly ? "Read-only: edits, inserts, deletes and write statements are blocked. Click to allow writes." : "Read & write: edits and write statements are allowed. Click to block them."}
+        >
+          <span className="knob" aria-hidden />
+          {readOnly ? "Read-only" : "Read & write"}
+        </button>
+        <ConnectionPicker
+          compact
+          label="Switch connection"
+          connections={allConns.length ? allConns : [cfg]}
+          selectedId={cfg.id}
+          currentId={cfg.id}
+          openOnClick
+          onOpen={(c) => {
+            if (c.id !== cfg.id) void openConnection(c);
+          }}
+          actions={[
+            { id: "new", label: "New connection…", icon: "plus", run: () => setCreating({ step: "pick" }) },
+            { id: "manage", label: "Manage connections…", icon: "home", run: () => navigate({ name: "home" }) },
+          ]}
+        />
         <div className="capsule">
           <button onClick={() => setEditing(true)} title="Connection settings" disabled={demo}>
             <span className="badge">{cfg.env}</span>
@@ -506,11 +624,15 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         <button className="btn icon ghost" title={`Refresh (${MOD}R)`} onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh">
           <Icon name="refresh" />
         </button>
+        <button className="btn icon ghost" title="Open this connection in a new browser tab" onClick={openInNewWindow} aria-label="Open in new browser tab">
+          <Icon name="external" />
+        </button>
         <button className="btn ghost" title="Command palette" onClick={() => setPalette(true)}>
           <kbd>{MOD}K</kbd>
         </button>
-        <button className="btn icon ghost" title={`Toggle Details pane (${MOD}⌥R)`} aria-pressed={showRight} onClick={() => setShowRight(!showRight)} aria-label="Toggle Details pane">
+        <button className={"btn ghost details-toggle"} title={`${showRight ? "Hide" : "Show"} the Details pane: the selected row's fields (${MOD}⌥R)`} aria-pressed={showRight} onClick={() => setShowRight(!showRight)} aria-label="Toggle Details pane">
           <Icon name="panel-right" />
+          Details
         </button>
       </div>
 
@@ -520,54 +642,34 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         <div className="center">
           {readOnly && (
             <div className="ro-banner">
-              🔒 Read-only. {cfg.env === "production" ? "Production connections start locked." : ""} Edits and write statements are blocked.
+              <b>Read-only.</b> {cfg.env === "production" ? "Production connections start read-only." : ""} Edits and write statements are blocked.
             </div>
           )}
-          <div className="wtabs">
-            <div className="nav">
-              <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos > 0)} onClick={() => go(-1)} title={`Back (${MOD}[)`} aria-label="Back">
-                <Icon name="back" />
-              </button>
-              <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos < active.stack.length - 1)} onClick={() => go(1)} title={`Forward (${MOD}])`} aria-label="Forward">
-                <Icon name="forward" />
-              </button>
-            </div>
-            <div className="scroller" role="tablist">
-              {tabs.map((t) => {
-                const label = t.kind === "table" ? (t.stack[t.pos]!.path.at(-1) ?? "table") : t.title;
-                const dirty = t.kind === "table" && pending.items.some((i) => pathKey(i.table) === pathKey(t.stack[t.pos]!.path));
-                return (
-                  <div
-                    key={t.id}
-                    className="wtab"
-                    role="tab"
-                    aria-selected={t.id === activeTab}
-                    onClick={() => setActiveTab(t.id)}
-                    onAuxClick={(e) => e.button === 1 && closeTab(t.id)}
-                    style={{ cursor: "pointer" }}
-                    title={t.kind === "table" ? ctx.sqlName(t.stack[t.pos]!.path) : t.title}
-                  >
-                    <span className="faint">{t.kind === "table" ? "▦" : "⌘"}</span>
-                    {label}
-                    {dirty && <span className="pdot" title="Pending changes" />}
-                    <button
-                      className="x"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(t.id);
-                      }}
-                      aria-label={`Close ${label}`}
-                    >
-                      <Icon name="close" />
-                    </button>
-                  </div>
-                );
-              })}
-              <button className="wtab" onClick={() => openSql()} title={`New query tab (${ALT}T)`} style={{ color: "var(--faint)" }} aria-label="New query tab">
-                <Icon name="plus" />
-              </button>
-            </div>
-          </div>
+          <TabStrip
+            tabs={tabs}
+            activeId={activeTab}
+            info={tabInfo}
+            nav={
+              <div className="nav">
+                <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos > 0)} onClick={() => go(-1)} title={`Back (${MOD}[)`} aria-label="Back">
+                  <Icon name="back" />
+                </button>
+                <button className="btn icon ghost" disabled={!(active?.kind === "table" && active.pos < active.stack.length - 1)} onClick={() => go(1)} title={`Forward (${MOD}])`} aria-label="Forward">
+                  <Icon name="forward" />
+                </button>
+              </div>
+            }
+            onActivate={setActiveTab}
+            onClose={closeTabs}
+            onCloseOthers={(id) => {
+              setActiveTab(id);
+              closeTabs(othersOf(tabs, id));
+            }}
+            onCloseRight={(id) => closeTabs(rightOf(tabs, id))}
+            onDuplicate={duplicate}
+            onMove={(id, to) => setTabs((ts) => moveTab(ts, id, to))}
+            onNew={() => openSql()}
+          />
 
           {tabs.length === 0 && (
             <div className="empty" style={{ flex: 1 }}>
@@ -586,7 +688,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 active={t.id === activeTab}
                 reloadKey={reloadKey}
                 onEntry={(patch) => patchEntry(t.id, patch)}
-                onPush={pushEntry}
+                onPush={(entry, newTab) => pushEntry(entry, newTab, t.id)}
                 onDetails={setDetails}
                 onOpenSql={openSql}
               />
@@ -601,6 +703,10 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
                 onSql={(sql) => setTabs((ts) => ts.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, sql } : x)))}
                 onDetails={setDetails}
                 onSaved={() => setHistoryVersion((v) => v + 1)}
+                onBound={(q) => {
+                  setBoundTabs((b) => ({ ...b, [t.id]: q.id }));
+                  setTabs((ts) => ts.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, title: q.name } : x)));
+                }}
               />
             ),
           )}
@@ -640,6 +746,39 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
 
       {drawer && <ReviewDrawer ctx={ctx} applying={applying} error={applyErr} askConfirm={drawer.confirm} onApply={() => void apply()} onClose={() => setDrawer(null)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
+      {closing && (
+        <CloseDirtyConfirm
+          names={closing.names}
+          count={closing.count}
+          onCancel={() => setClosing(null)}
+          onKeep={() => {
+            removeTabs(closing.ids);
+            setClosing(null);
+          }}
+          onDiscard={() => {
+            setPendingState((s) => closing.tables.reduce((acc, t) => clearTable(acc, t), s));
+            removeTabs(closing.ids);
+            setClosing(null);
+          }}
+        />
+      )}
+      {creating?.step === "pick" && (
+        <EnginePicker onCancel={() => setCreating(null)} onPick={(driver, prefill) => setCreating({ step: "form", driver, prefill })} onNewGroup={() => navigate({ name: "home" })} />
+      )}
+      {creating?.step === "form" && (
+        <ConnectionForm
+          driver={creating.driver}
+          prefill={creating.prefill}
+          groups={[...new Set(allConns.map((c) => c.group).filter((g): g is string => !!g && g !== "Demo"))]}
+          onCancel={() => setCreating(null)}
+          onSaved={(c, connect) => {
+            setCreating(null);
+            setAllConns((cs) => [...cs.filter((x) => x.id !== c.id), c]);
+            if (connect) void openConnection(c);
+            else props.toast(`Saved ${c.name}`);
+          }}
+        />
+      )}
       {editing && !demo && (
         <ConnectionForm
           driver={cfg.driver}
