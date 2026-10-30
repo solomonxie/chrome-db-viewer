@@ -59,7 +59,7 @@ Without the runner, those two connection types show an "Install dbui runner" car
 | SQLite | `@sqlite.org/sqlite-wasm` in a Web Worker, OPFS for scratch DBs | Official build |
 | BigQuery | `fetch` + a `TokenProvider` per auth method (§3.8) | No runner, no backend |
 | ClickHouse | `fetch` against the HTTP interface, streamed with `ReadableStream` (§3.9) | No dependency, no runner |
-| Local state | IndexedDB (connections minus secrets, history, snippets, recent file handles, UI state) | Survives restarts; stays on this machine |
+| Local state | IndexedDB (connections minus secrets, history, snippets, recent file handles, UI state), copied to the runner's `backup.json` (§3.16) | Survives restarts; stays on this machine; survives uninstall through the backup |
 | Secrets | macOS Keychain through the runner when installed, otherwise the browser profile (§3.7) | Never synced, never in exported settings |
 | Runner | **C++20**, CMake + vcpkg, one binary `dbui-runner` (static deps, universal arm64 + x86_64) | Official native client libraries; no runtime to install |
 | Runner libs | `libpq`, `hiredis`, `libduckdb`, `clickhouse-cpp`, `libssh2`, OpenSSL 3, `libcurl` (Google token exchange), `nlohmann/json`, `Security.framework` | Mature C/C++ clients |
@@ -68,6 +68,9 @@ Without the runner, those two connection types show an "Install dbui runner" car
 ```jsonc
 {
   "manifest_version": 3,
+  // Public key that pins the extension ID (dalbkdjjdgbjhoalobeikhpchkoddnpb) for unpacked
+  // installs, whatever folder dist/ is loaded from (§5.1).
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr5oL…",
   // No "default_popup" and no "side_panel": clicking the icon fires action.onClicked,
   // which opens or focuses the full-page app tab (§4.1).
   "action": { "default_title": "Open dbui" },
@@ -76,11 +79,13 @@ Without the runner, those two connection types show an "Install dbui runner" car
   "host_permissions": [
     "https://bigquery.googleapis.com/*",
     "https://oauth2.googleapis.com/*",
-    "https://iamcredentials.googleapis.com/*"
+    "https://iamcredentials.googleapis.com/*",
+    // All sites, granted at install, so Browser preview (§3.12) works with no extra prompt.
+    // This also satisfies the per-origin request made when saving a ClickHouse HTTP connection.
+    "https://*/*", "http://*/*"
   ],
-  // Requested at runtime only: one origin at a time for ClickHouse hosts, or all sites
-  // when you turn on "Browser preview" (§3.12).
-  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  // The preview redirect can only land on a web-accessible page (§3.12). Only app.html.
+  "web_accessible_resources": [{ "resources": ["app.html"], "matches": ["<all_urls>"] }],
   "oauth2": { "client_id": "<id>.apps.googleusercontent.com", "scopes": ["https://www.googleapis.com/auth/bigquery"] },
   // WASM needs 'wasm-unsafe-eval'. Cross-origin isolation enables DuckDB-WASM threads.
   "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
@@ -88,9 +93,16 @@ Without the runner, those two connection types show an "Install dbui runner" car
   "cross_origin_opener_policy": { "value": "same-origin" }
 }
 ```
-No `<all_urls>` granted up front, no content scripts: dbui never reads the pages you browse.
-`declarativeNetRequestWithHostAccess` (unlike plain `declarativeNetRequest`) shows no
-install warning; its redirect rule does nothing until you grant site access in Settings.
+**All-sites host access is granted at install.** Browser preview is on by default (§3.12),
+and its redirect rule only acts on hosts the extension has access to, so asking later meant the
+feature silently did nothing for anyone who never opened Settings. The cost is Chrome's
+install-time warning, **"Read and change all your data on all websites"**. What dbui actually
+does with that access is narrow: there are no content scripts, so it never reads the pages you
+browse; the only thing that uses it is one `declarativeNetRequest` redirect for `main_frame`
+navigations to data-file URLs, which Chrome evaluates itself, plus the viewer's `fetch` of a file
+you opened. Turning Browser preview off removes the rule. A user can still restrict dbui's site
+access on `chrome://extensions`; Settings then shows **Site access is off for dbui in Chrome.
+[Fix]**, which calls `chrome.permissions.request`.
 MV3 forbids remotely loaded code, so every WASM module and DuckDB extension the
 browser build uses is bundled in the package.
 
@@ -178,6 +190,8 @@ several messages with the same `id`.
 {"id": 8, "op": "execute", "sql": "select * from orders", "pageSize": 2000}
 {"id": 9, "op": "cancel",  "target": 8}
 {"id": 10, "op": "google.token", "source": "adc"}
+{"id": 11, "op": "backup.write", "json": "{\"format\":\"dbui-backup\",…}"}   // §3.16
+{"id": 12, "op": "backup.read"}
 
 // runner → extension
 {"id": 1, "type": "hello", "runner": "1.0.3", "protocol": 1,
@@ -188,16 +202,22 @@ several messages with the same `id`.
 {"id": 8, "type": "done", "rowCount": 48211, "ms": 412}
 {"id": 8, "type": "error", "code": "42P01", "message": "relation \"order\" does not exist"}
 {"id": 10, "type": "token", "accessToken": "ya29…", "expiresAt": 1761660000}
+{"id": 11, "type": "ok", "mtime": 1761700000000, "size": 48211}
+{"id": 12, "type": "chunk", "seq": 0, "data": "{\"format\":\"dbui-backup\",…"}  // ≤ 300 KB of UTF-8 each
+{"id": 12, "type": "backup", "exists": true, "mtime": 1761700000000, "size": 48211, "chunks": 1}
 ```
 
 - Ops: `hello`, `connect`, `disconnect`, `listObjects`, `describe`, `execute`, `cancel`,
   `apply` (ChangeSet), `export` (writes a file directly), `secret.set` / `secret.get` /
-  `secret.delete`, `google.token`, `tunnel.test`.
+  `secret.delete`, `backup.write` / `backup.read` (§3.16), `google.token`, `tunnel.test`.
 - Chrome caps **runner → Chrome** messages at 1 MB (the other direction allows up to 4 GB).
   The Pager sends ~2,000-row pages and splits further when rows are wide. Large exports
   never go through the pipe: the runner writes the file itself and sends progress.
 - `protocol` is an integer bumped on breaking changes. If the extension needs a newer
   protocol than the installed runner speaks, it shows the update card (§5).
+- New ops are added without a bump when older builds can ignore them: an older runner answers
+  `UNKNOWN_OP` and the extension treats that as "feature not available". `hello` lists such
+  additions in `features` (e.g. `["backup"]`). `backup.*` arrived this way in protocol 1.
 
 ### 3.4 Runner internals (C++)
 
@@ -286,8 +306,8 @@ Edits stay local until you commit, as in TablePlus.
 | Yes | macOS Keychain, through `secret.set` / `secret.get`. The extension keeps only a `secretRef` |
 | No | Your choice per connection: **Ask every session** (kept in memory only), or **Remember in this browser** (`chrome.storage.local`, never `storage.sync`, labelled as such in the UI) |
 
-Secrets never appear in exported or synced settings. BigQuery OAuth tokens are held by
-Chrome or kept in memory; key files can stay on disk (§3.8).
+Secrets never appear in exported or synced settings, or in backups (§3.16). BigQuery OAuth
+tokens are held by Chrome or kept in memory; key files can stay on disk (§3.8).
 
 ### 3.8 BigQuery authentication
 
@@ -413,9 +433,17 @@ the single-letter commands above.
 ### 3.12 Browser preview: opening files from the browser
 
 When this is on, a data file (CSV, JSONL, Parquet …) you open in Chrome shows up in a dbui
-file sheet instead of being downloaded, and, if you also check them, images and videos open
-in dbui's media viewer. It's **off by default**. Settings → **Browser preview** turns it on,
-asks Chrome for access to all sites at that moment, and lets you pick the file extensions.
+file sheet instead of being downloaded. dbui only opens data files; images and video are
+left to Chrome. It's **on by default**: the all-sites host access the redirect rule needs is
+granted at install (§2, *Manifest essentials*), and the background worker installs rule 1 on
+install and on every service-worker start. Settings → **Browser preview** turns it off
+(which removes the rule) and lets you pick the file extensions.
+
+Why on by default: the feature is the main reason to keep dbui installed for people who look at
+CSV/Parquet links all day, and as an opt-in behind a permission prompt it was easy to never find.
+When it was opt-in, a reinstall (which resets settings) quietly turned it off, and links
+downloaded again with nothing to say why. The trade-off is the install-time "all websites"
+warning; Chrome evaluates the rule itself and dbui runs no content scripts.
 
 | How the file arrives | What dbui does |
 |---|---|
@@ -426,10 +454,9 @@ asks Chrome for access to all sites at that moment, and lets you pick the file e
 
 **Settings → Browser preview: choose the file extensions.** Settings lists every supported
 extension as a checkbox, grouped. You pick exactly which ones dbui opens; everything else
-downloads or displays the way Chrome normally does. The master switch stays off until you
-turn it on, and the **Media** group stays unchecked even then.
+downloads or displays the way Chrome normally does. The master switch is on by default.
 
-| Group | Extensions (each one its own checkbox) | Checked when you turn the feature on |
+| Group | Extensions (each one its own checkbox) | Checked by default |
 |---|---|---|
 | Tables | `.csv` `.tsv` `.psv` | Yes |
 | JSON Lines | `.jsonl` `.ndjson` | Yes |
@@ -437,21 +464,23 @@ turn it on, and the **Media** group stays unchecked even then.
 | Databases | `.duckdb` `.sqlite` `.db` | Yes |
 | JSON | `.json` | **No.** Chrome's own JSON view is often what you want for API responses |
 | Compressed | `.gz` `.zst` (applies on top of the data types above, e.g. `.csv.gz`) | Yes |
-| Images | `.png` `.jpg` `.jpeg` `.gif` `.webp` `.avif` `.svg` `.heic` `.tiff` | **No** (Media is off by default) |
-| Video | `.mp4` `.webm` `.mov` `.m4v` `.mkv` | **No** (Media is off by default) |
+
+Saved settings from older versions that still list image or video extensions have them
+dropped on load, so they can't bring media matching back.
 
 Below the list: **Never open from these sites** (a domain list), plus a note and link for
 **Allow access to file URLs** on `chrome://extensions` for local files.
 
-**Redirect rule** (rebuilt with `updateDynamicRules` whenever the checklist changes, removed
-when the master switch is off):
+**Redirect rule** (rebuilt with `updateDynamicRules` on install, on every service-worker start
+— `onStartup` doesn't fire on an extension reload — and whenever the checklist changes; removed
+when the master switch is off or when site access is missing):
 
 ```jsonc
 {
   "id": 1, "priority": 1,
   "condition": {
-    // generated from the checked extensions, e.g. with csv, jsonl, parquet, png checked:
-    "regexFilter": "^(https?|file)://[^?#]*\\.(csv|jsonl|parquet|png)(\\.gz|\\.zst)?([?#].*)?$",
+    // generated from the checked extensions, e.g. with csv, jsonl, parquet checked:
+    "regexFilter": "^(https?|file)://[^?#]*\\.(csv|jsonl|parquet)(\\.gz|\\.zst)?([?#].*)?$",
     "resourceTypes": ["main_frame"],  // only tabs you navigate; sites' own fetches are untouched
     "excludedRequestDomains": []      // "Never open from these sites"
   },
@@ -461,11 +490,19 @@ when the master switch is off):
 ```
 
 - Chrome evaluates the rule itself. dbui never sees the rest of your browsing.
+- `syncPreviewRules` still checks `chrome.permissions.contains` for all sites. That's normally
+  true from install; if the user restricted site access on `chrome://extensions`, the rule is
+  removed and Settings shows **Site access is off for dbui in Chrome. [Fix]**.
 - `.gz`/`.zst` only match after a checked data extension, so a plain `backup.tar.gz` still downloads.
-- Checked image/video extensions get a **second rule** (id 2) with the same shape that
-  redirects to `media.html?src=…`, since one rule can only point at one page.
-- An image or video embedded in a web page is never affected (`main_frame` only). The rule
+- `app.html` is listed in `web_accessible_resources` for `<all_urls>`. Chrome refuses a DNR
+  redirect from a web page to an extension page that isn't web-accessible to that origin, and
+  the navigation then carries on as a plain download. Only that one page is exposed (no
+  `assets/*`, no `sandbox.html`), and without `use_dynamic_url`, since the redirect target is
+  the static `chrome-extension://<id>/` URL.
+- Rule 1 only acts on `main_frame`, so a file a page loads itself is never affected. The rule
   only catches a file opened directly as the tab's address.
+- Ids 2 and 3 belonged to the removed image/video viewer. Every sync still removes them
+  (`LEGACY_RULE_IDS`), so installs that had them get them cleared.
 - A **Download instead** button in the viewer calls `chrome.downloads.download(url)`. That's
   a download, not a tab navigation, so the rule doesn't catch it again.
 - **Never open from this site** is also a button in the viewer; it adds the domain to the list.
@@ -483,26 +520,6 @@ when the master switch is off):
   so `⌘S` becomes **Save as** to a local file.
 - `.duckdb` / `.sqlite` links are downloaded into browser storage (OPFS) and opened
   read-only as a connection tab.
-
-**Image and video preview** (Media group, unchecked by default). Chrome already shows
-images and plays some videos, so this only helps if you want a better viewer. It's a
-separate `media.html` page, not a file sheet, and it loads no DuckDB.
-
-| | Image viewer | Video player |
-|---|---|---|
-| Shows | `<img>` on a checkerboard background, fit / 100% / zoom (`⌘+` `⌘-` `⌘0`), drag to pan | `<video controls>`, speed 0.25×–4×, frame step (`,` `.`), loop A–B, picture-in-picture |
-| Info panel | Dimensions, file size, type; EXIF (camera, lens, date, GPS shown as coordinates) read from the bytes with a small bundled parser | Duration, resolution, codec, frame rate, tracks (from `HTMLVideoElement` + `getVideoPlaybackQuality`) |
-| Tools | Copy image, colour picker (hex/RGB at the cursor), rotate, **Save as** PNG/WebP/JPEG via canvas | Screenshot current frame to PNG |
-| Folder view | When the URL is a directory listing or a local folder, `←` `→` step through sibling images | Same for videos |
-
-Limits:
-- `.heic` and `.tiff` only show where Chrome can decode them; otherwise the viewer says so
-  and offers **Download instead**.
-- `.mkv` and some `.mov` files use codecs Chrome can't play (HEVC on some Macs, ProRes); same fallback.
-- Video streams with range requests straight from the original URL, so a 4 GB `.mp4` starts
-  playing at once and isn't copied into memory.
-- Images and videos embedded in web pages are never affected. Only a file opened directly
-  as the tab's address is redirected.
 
 **When the URL can't be fetched again** (one-time links, form-POST exports, `blob:` URLs
 made by a page): dbui lets Chrome finish the download, then opens the file from disk
@@ -536,6 +553,13 @@ A **Collection** is a notebook of named queries, like a Postman collection, but 
 Queries are **Jinja templates**. dbui fills in variables and includes, shows you the exact
 SQL it will send, and only then runs it.
 
+Collections hold only queries: folders, named queries, and the variables, environments and
+scripts those queries use. **Collections and Workflows (§3.15) are separate tabs** in the
+left pane (Items · Collections · Workflows · History): a collection is a library of reusable
+queries, and a workflow is a pipeline that uses them. The old **Saved** tab is gone: ⌘S in
+a plain query tab saves into a collection (§ below), and queries saved before this change
+were moved into a **Saved queries** collection once, on first start.
+
 **Structure**
 ```
 Collection "Ad performance"           variables: client_id, start_date, end_date, model
@@ -545,8 +569,20 @@ Collection "Ad performance"           variables: client_id, start_date, end_date
 ├─ ad_report_daily        {% include "Base/sales_metrics" %} … joins fb_ads
 └─ top_ads_by_roas        uses ad_report_daily
 ```
+- **Folders nest to any depth** ("Reports / Weekly / Daily"). A folder's menu makes a
+  subfolder; dragging a folder onto another moves it, and dbui refuses to move a folder into
+  itself or one of its own subfolders. Each collection and folder row shows how many queries
+  it holds and a **+** for a new query right there. An empty collection says "Add a query,
+  or save one from History".
 - **A query** has a name, SQL template, connection (or "the collection's default"),
   description, and variable defaults.
+- **A query can hold several statements** separated by `;`. **Run** (`⌘↵`) runs the
+  selection or the statement at the cursor; **Run all** (`⌘⇧↵`) renders the template, splits
+  the rendered SQL on `;` outside strings and comments, and runs every statement in order.
+  Each gets its own result tab (**Result 1**, **Result 2** …, with the statement's first line
+  as a tooltip), and the run stops at the first error, marking the statement that failed.
+  The Rendered tab shows all statements, the Parameters panel collects variables across
+  them, and the BigQuery dry run estimates each statement and shows the total.
 - **A collection** has a default connection, collection variables, and **environments**
   (like Postman): named sets of values, e.g. `dev` → `client_id = 1111…`, `prod-client-A` →
   `client_id = 4c1e…`. A dropdown picks the active one.
@@ -555,9 +591,16 @@ Collection "Ad performance"           variables: client_id, start_date, end_date
 - **Never in exports:** variable values marked **secret** are kept in the SecretStore and
   left out of exports.
 
-**From History to a named query.** Every History entry has **Save as named query…**:
-1. pick a collection and folder, and give it a name;
-2. dbui offers to **turn literals into variables**. It finds string, number and date
+**Saving a query: one click from History, or `⌘S`.** Every History row has a **Save**
+button (on hover), and `⌘S` in a plain query tab opens the same dialog:
+1. the collection and folder default to the last ones used, or to a **Saved queries**
+   collection created on the first save; the folder picker shows nested paths and can make a
+   new subfolder in place. The name defaults to the first table plus the date (`orders
+   2026-10-30`), or the first 40 characters of the SQL. Save is then one click. After `⌘S`
+   the tab is bound to the new named query, so the next `⌘S` just saves it. Each save is one
+   query; History entries are never merged;
+2. optionally, under **Make it reusable…** (collapsed), dbui offers to **turn literals into
+   variables**. It finds string, number and date
    literals in the SQL (e.g. `'2026-10-01'`, `'last_touch'`) and lists them with a
    suggested name, so `WHERE localdate >= '2026-10-01'` becomes
    `WHERE localdate >= {{ start_date | sql }}` with the old value as the default;
@@ -574,7 +617,7 @@ Collection "Ad performance"           variables: client_id, start_date, end_date
 | `{{ ids \| sql_list }}` | List → `(1, 2, 3)` / `('a', 'b')` |
 | `{{ table \| ident }}` | Quoted identifier (`` `x` `` in BigQuery, `"x"` in Postgres) |
 | `{% include "Base/sales_metrics" %}` | Paste another query's rendered SQL (same variables) |
-| `{{ ref("ad_report_daily") }}` | Use another query **as a table**: becomes a CTE, a subquery, or a materialised table name (chains, §3.15) |
+| `{{ ref("ad_report_daily") }}` | Use another query **as a table**: becomes a CTE, a subquery, or a materialised table name (workflows, §3.15) |
 | `{% if model %} … {% endif %}`, `{% for … %}` | Normal Jinja control flow |
 | `{{ var("days", 7) }}` | Variable with a default |
 
@@ -617,29 +660,47 @@ have two optional JavaScript scripts. They run in the script sandbox (§3.15) wi
 - **The `db` API:**
   - `db.vars.get/set/unset` and `db.env.get/set` (writing to the environment asks first)
   - `db.result.rows`, `db.result.columns`, `db.result.column(name)` and `db.result.rowCount`
-    (post-run only)
+    (post-run only). For a query with several statements, `db.result` is the last
+    statement's result and `db.results` is the array of all of them (`[db.result]` otherwise).
+    Pre and post scripts run once around the whole query, not per statement
   - `db.test(name, bool)`, `db.fail(msg)`, `db.log(...)`, and date helpers
 - **Results:** test results appear in a **Tests** tab next to the results (pass/fail per
   assertion), and `db.log` output in a **Console** tab. A failed pre-run script stops the run.
 - **Variables carry over:** variables set in post-run scripts persist for the session, so
   running query A then query B in the same collection works like a two-step flow without
-  building a chain. Chains reuse the same scripts: a query step runs its pre and post scripts too.
+  building a workflow. Workflows reuse the same scripts: a query step runs its pre and post scripts too.
 
-### 3.15 Chains: multi-step pipelines (dbt-style)
+### 3.15 Workflows: multi-step pipelines (dbt-style)
 
-A **Chain** runs several steps in order, where later steps use earlier steps' output, like a
-small dbt project inside dbui. Chains live in collections.
+A **Workflow** runs several steps in order, where later steps use earlier steps' output, like a
+small dbt project inside dbui.
+
+> Naming note: the code calls workflows **chains** (`src/chains/`, the `Chain` type, the
+> `chains` IndexedDB store). The UI always says "workflow".
+
+**Where they live.** Workflows have their own **Workflows** tab in the left pane, next to
+Collections, not inside a collection. It's a flat list of every workflow with a filter, **New
+workflow**, rename, duplicate and delete. Each row shows the step count, the last run (passed,
+failed, stopped or blocked, and when), and small tags for the collection(s) its query steps
+use. A workflow opens at `#workflow/<id>` (old `#chain/<id>` links still work).
+
+**Home collection.** Every workflow has one home collection, whose variables, environments and
+named queries its steps use. **New workflow** asks for it, defaulting to the only collection
+or to a **Workflows** collection created on demand. It shows as a tag, never as nesting. In
+the workflow view the header reads **Workflow**, the tag opens that collection's settings, and
+**Change…** picks another collection. Deleting a collection keeps its workflows; their view
+then asks for a new home.
 
 **Step kinds**
 
 | Kind | What it does | Output |
 |---|---|---|
-| **Query** | Runs a named query (or inline SQL) on a connection, with chain variables | A result table |
+| **Query** | Runs a named query (or inline SQL) on a connection, with workflow variables | A result table |
 | **Transform: SQL** | Runs SQL over earlier steps' results **locally in DuckDB-WASM**, e.g. `SELECT … FROM {{ ref("sales") }} JOIN {{ ref("ads") }}` even when `sales` came from BigQuery and `ads` from Postgres | A result table |
 | **Transform: script** | Runs a JavaScript function on earlier results, in a sandboxed Web Worker: `(inputs, vars) => rows \| { rows, vars }` | A result table and/or new variables |
 | **Set variables** | Picks values out of a result for later steps, e.g. `top_ad_ids = column "ad_hash" of step "top_ads"`, `max_date = max(localdate)` | Variables |
 | **Export** | Writes a result to a file (CSV, JSONL, Parquet) through the file picker | A file |
-| **Assert** | A check, e.g. "row count > 0" or "no NULL ad_id". Fails the chain when not met | Pass/fail |
+| **Assert** | A check, e.g. "row count > 0" or "no NULL ad_id". Fails the workflow when not met | Pass/fail |
 
 So a **middle step that converts one step's output into the next step's input** is either:
 - **Transform: SQL**, for reshaping, joining, filtering or aggregating with SQL. It runs on
@@ -652,7 +713,7 @@ So a **middle step that converts one step's output into the next step's input** 
   on Postgres.
 
 **How data flows between steps**
-- Each step's result is loaded into the chain's **local DuckDB** as table `step_<name>`, which
+- Each step's result is loaded into the workflow's **local DuckDB** as table `step_<name>`, which
   `{{ ref("name") }}` points at in transforms.
 - When a **Query** step refers to an earlier step on the **same warehouse connection**, dbui
   inlines it as a CTE, so BigQuery does the work and nothing is downloaded. Across
@@ -669,18 +730,73 @@ So a **middle step that converts one step's output into the next step's input** 
   re-run steps 1–3. Clearing the cache forces a full run.
 - **Cost guard:** before Run all, BigQuery steps are dry-run together and the total
   estimate is shown. The run stops if any single step is over the connection's cost guard.
-- **Safety:** write statements in a chain step follow the connection's Read-only and production
-  rules. A chain can't bypass them.
+- **Safety:** write statements in a workflow step follow the connection's Read-only and production
+  rules. A workflow can't bypass them.
+- **Query steps with several statements:** when a step's named query holds several statements
+  (§3.14), the earlier ones run first as setup and the **last** statement's result is the
+  step's output. Such a step is never inlined as a CTE. The step editor says so.
 
 **Script sandbox.** Script steps run in a dedicated Web Worker with no network (`fetch`,
 `XMLHttpRequest` and `importScripts` are removed), no access to extension APIs, secrets or
 other tabs, a time limit (default 30 s) and a row limit. They see only their declared inputs
-and chain variables. MV3 forbids `eval`, so scripts run in a sandboxed extension page
+and workflow variables. MV3 forbids `eval`, so scripts run in a sandboxed extension page
 (`"sandbox"` in the manifest), which is the supported way to run user code in an extension.
 
 **Not in v1:** schedules, incremental models, writing results back to a warehouse table
 (`materialized: table` in dbt terms), and Python steps. Python could come later via Pyodide in
 the same sandbox.
+
+### 3.16 Backup: surviving uninstall
+
+Chrome deletes an extension's IndexedDB and `chrome.storage.local` when it is uninstalled (and
+used to, for unpacked builds, whenever the folder moved and the ID changed; §5.1). Connections,
+collections, workflows and history would be lost with it, so dbui keeps a copy outside Chrome.
+
+**Backup file** (`src/app/store/backup.ts`):
+
+```jsonc
+{ "format": "dbui-backup", "version": 1, "exportedAt": 1761700000000,
+  "stores": { "connections": […], "history": […], "queries": […], "recentFiles": […], "groups": […],
+              "collections": […], "folders": […], "namedQueries": […], "chains": […] },  // every store but "handles"
+  "settings": { "previewSettings": {…}, "theme": "dark" } }                            // chrome.storage.local keys dbui owns
+```
+
+- **No secrets.** Password, token and key fields are stripped from connection options (refs
+  such as `secretRef` and `keySecretRef` stay), secret collection/query/workflow variables lose
+  their values, and nothing the SecretStore keeps (`secret:*`) is read. Secrets stay in Keychain
+  or are typed again.
+- **No file handles.** `FileSystemFileHandle`s can't be serialised, so the `handles` store is
+  skipped, and connections and recent files that used one get `needsRepick: true`. A restore
+  on the same profile re-attaches handles that are still there.
+- **Import** validates `format` and `version` (older, newer, collection exports and broken
+  files are refused with a message saying which). **Merge** matches rows by id and keeps the
+  newer one by `updatedAt` (else `lastUsedAt` / `openedAt` / `at` / `createdAt`), ties keep the
+  local row, and only fills settings that aren't set. **Replace** clears each store first.
+
+**Manual:** Settings → **Backup** → **Export…** (`showSaveFilePicker`, else `chrome.downloads`
+with a blob URL) and **Import…** (file picker → summary such as "12 connections, 3 collections,
+5 workflows" → **Merge** or **Replace…** with an in-page confirm).
+
+**Automatic, through the runner** (`src/app/store/autoBackup.ts`):
+
+- The db wrapper emits a change event after every `put`/`del`; about 5 s after the last one (or
+  a change to a backed-up setting, or when the page is hidden with one pending), the app sends
+  `exportAll()` with `backup.write` over a short-lived native port. Writes never wait for it.
+  No runner, or a runner without `backup.*` (`UNKNOWN_OP`): it stops trying for that page.
+- The runner writes `~/Library/Application Support/dbui/backup.json` atomically (temp file,
+  `fsync`, `rename`), keeps the file it replaces as `backup.prev.json`, refuses more than 50 MB,
+  and checks that the payload is a `dbui-backup` object. `backup.read` sends the file back in
+  UTF-8-safe chunks of ≤ 300 KB, so each message stays under Chrome's 1 MB limit.
+- **A fresh profile never overwrites a backup it hasn't seen.** Automatic writes start only once
+  this profile is *linked* to the file: it wrote it, restored it, the user pressed **Back up
+  now**, or there was no file yet. The link flag is in `chrome.storage.local`, which uninstall
+  clears, so a reinstall starts unlinked and its first edits can't destroy the backup it is
+  about to be offered. Settings → Backup says when automatic backup is paused for this reason.
+- **Restore on a fresh install:** when Home loads with no connections, collections or history
+  and the runner has a backup, Home shows **Found a backup from <date>: 12 connections,
+  3 collections… Restore?** with **Restore** / **Not now**. Restore imports in replace mode.
+  Never silent, never over existing data.
+- Settings → Backup shows the last automatic backup time and a **Back up now** button.
 
 ---
 
@@ -749,10 +865,11 @@ dbui is **full-page only**: no toolbar popup, no dropdown, no Chrome side panel.
   command palette (`⌘K`), toggle the bottom panel, toggle the right pane.
 
 **Left pane**
-- Three tabs:
+- Four tabs, as a compact segmented control (labels collapse to icons when the pane is narrow):
   - **Items**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
-  - **Queries**: saved queries for this connection.
-  - **History**: every statement you ran, searchable, with time, duration and rows.
+  - **Collections**: named queries in collections and folders (§3.14).
+  - **Workflows**: multi-step pipelines (§3.15).
+  - **History**: every statement you ran, searchable, with time, duration and rows, and a **Save** button per row.
 - Bottom: **+** (new table, view or query), and a **schema / database picker** (`public ⇕`).
 
 **Centre pane**
@@ -850,6 +967,18 @@ dbui is **full-page only**: no toolbar popup, no dropdown, no Chrome side panel.
 Chrome Web Store. Also works in Edge, Brave and Arc (same MV3 + native messaging).
 Everything except Postgres and Redis works right after installing the extension.
 
+**Stable extension ID.** An unpacked extension's ID normally comes from its folder path, so
+moving the repo (or loading `dist/` from somewhere else) gave it a new ID. Chrome then treated it
+as a different extension, with empty IndexedDB and storage, and the runner's `allowed_origins`
+no longer matched. `public/manifest.json` therefore carries a `key` (the public half of a key
+pair), which pins the ID to **`dalbkdjjdgbjhoalobeikhpchkoddnpb`** wherever it is loaded from
+and across reloads. Don't change or remove it. Register the dev runner for that ID with
+`runner/scripts/dev-install.sh dalbkdjjdgbjhoalobeikhpchkoddnpb`.
+
+**Uninstalling still clears Chrome's storage** for the extension, whatever the ID. That's why
+the automatic backup exists (§3.16): with the runner installed, reinstalling offers to restore
+from `~/Library/Application Support/dbui/backup.json`.
+
 ### 5.2 Runner: one click from the extension
 The runner is installed once, per macOS user, with no admin password and no brew.
 
@@ -868,6 +997,7 @@ What the `.pkg` installs, all inside your home folder:
 |---|---|
 | Runner binary | `~/Library/Application Support/dbui/dbui-runner` |
 | Uninstall script | `~/Library/Application Support/dbui/uninstall.sh` |
+| Automatic backup (written later, §3.16) | `~/Library/Application Support/dbui/backup.json`, `backup.prev.json` |
 | Chrome manifest | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.dbui.runner.json` |
 | Other browsers (if installed) | the same file under `Microsoft Edge/`, `BraveSoftware/Brave-Browser/`, `Arc/User Data/`, `Chromium/` |
 
@@ -907,7 +1037,6 @@ chrome-db-viewer/
     manifest.config.ts
     src/app/                 app.html UI (sidebar, tabs, grid, editor, sheet stack, drawer)
     src/background.ts        toolbar click → open or focus the app tab; preview redirect rules
-    src/media/               media.html image viewer and video player
     src/core/                driver interface, ChangeSet, dialects, caches, SecretStore
     src/auth/google/         TokenProviders: chromeIdentity, webAuthFlow, serviceAccount, adcFile, impersonate, pasted
     src/drivers/  duckdb/  files/  sqlite/  bigquery/  clickhouse/  runner/
@@ -919,6 +1048,7 @@ chrome-db-viewer/
     src/drivers/  postgres/  redis/  duckdb/  clickhouse/
     src/google_auth.cpp      ADC, workload identity federation, SA keys from Keychain
     src/ssh_tunnel.cpp  src/secret_store_keychain.mm  src/pager.cpp
+    src/backup.cpp           backup.write / backup.read: ~/Library/Application Support/dbui/backup.json (§3.16)
     tests/                   Catch2; docker-compose pg/redis/clickhouse
     packaging/macos/         pkgbuild/productbuild scripts, postinstall, uninstall.sh,
                              host manifest template, notarize script
@@ -933,7 +1063,7 @@ chrome-db-viewer/
 |---|---|---|
 | M0 | MV3 skeleton (Vite + React), full-page app tab with Home, toolbar click opens or focuses it, CSP/COOP/COEP set, CI build | Extension loads unpacked and opens the app tab |
 | M1 | Grid + **DuckDB-WASM** + **file sheets** (CSV/JSONL/Parquet open, sort, filter, summary, frequency, sheet stack) | Open a 5 GB CSV and get a frequency table without the tab running out of memory |
-| M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support, image and video viewer | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
+| M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support (data files only; images and video are left to Chrome) | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
 | M2 | **SQLite** and **DuckDB** files, SQL editor (CodeMirror, autocomplete, history), cancel; file sheet editing and save | Query across a `.duckdb` file and two CSVs in one statement |
 | M3 | **BigQuery**: Chrome account, web auth flow, service account key, pasted token, impersonation; dry-run cost guard; job history | Same query works signed in three different ways, with the bytes cap enforced |
 | M4 | **ClickHouse** over HTTP: streaming, cancel, sidebar, structure | Stream 10M rows from ClickHouse Cloud and cancel mid-query |
@@ -943,8 +1073,8 @@ chrome-db-viewer/
 | M8 | Runner extras: native DuckDB, ClickHouse native protocol, gcloud ADC, workload identity federation | DuckDB engine "Auto" switches to the runner when it's installed |
 | M9 | Export (runner writes files), runner update flow, polish, Web Store listing, OAuth verification | Public beta |
 | M10 | **Collections** (§3.14): collections, folders, environments, Jinja templates with `sql`/`ident`/`sql_list` filters, `include`, parameter detection and panel, Rendered tab, History → named query with literal-to-variable, JSON and folder export | Save a History query as a named query with `start_date` turned into a variable, run it in two environments, and see the rendered SQL each time |
-| M11 | **Chains** (§3.15): Query, Transform SQL, Set variables, Export and Assert steps, `ref()` graph, local DuckDB step tables, CTE inlining on the same connection, step cache, combined dry run | A 3-step chain: BigQuery top ads → Set variables → Postgres lookup by those IDs, re-running only the last step after an edit |
-| M12 | **Scripts**: pre-run and post-run scripts on queries, folders and collections (the `db` API, Tests and Console tabs); chain **Transform: script** steps; all in the sandboxed page. Collection import/export as a git-friendly folder | A post-run script asserts a row count and sets `top_ids`, the next query uses them, and a script step reshapes JSON into rows |
+| M11 | **Workflows** (§3.15): Query, Transform SQL, Set variables, Export and Assert steps, `ref()` graph, local DuckDB step tables, CTE inlining on the same connection, step cache, combined dry run | A 3-step workflow: BigQuery top ads → Set variables → Postgres lookup by those IDs, re-running only the last step after an edit |
+| M12 | **Scripts**: pre-run and post-run scripts on queries, folders and collections (the `db` API, Tests and Console tabs); workflow **Transform: script** steps; all in the sandboxed page. Collection import/export as a git-friendly folder | A post-run script asserts a row count and sets `top_ids`, the next query uses them, and a script step reshapes JSON into rows |
 
 Everything before M5 needs no runner, so the extension is useful from the first release.
 
@@ -957,8 +1087,8 @@ Everything before M5 needs no runner, so the extension is useful from the first 
 | **MongoDB** | Runner driver on `mongo-cxx-driver` (or `libmongoc` to save ~15 MB). Document view (JSON or flattened table), filter as a Mongo query, aggregation pipeline editor; edits become `updateOne({_id}, {$set: …})` inside `withTransaction`. The current mockup already shows this view. |
 | **Snowflake** | Default: **SQL API v2** (`POST /api/v2/statements`) straight from the extension, like ClickHouse HTTP. Auth with key-pair JWT (signed with WebCrypto) or OAuth; results arrive in partitions that map onto pages. Host permission requested for `https://<account>.snowflakecomputing.com`. A runner driver (ADBC) only if the SQL API proves too limited. |
 | Excel files | `.xlsx` sheets through the DuckDB `excel` extension (runner), or a bundled JS parser in the browser |
-| Chain schedules and write-back | Run a chain on a schedule (needs the runner or the team gateway to run without a tab open); write a step's result to a warehouse table, dbt `materialized: table` style |
-| Python steps | Pyodide in the chain sandbox, for pandas-style transforms |
+| Workflow schedules and write-back | Run a workflow on a schedule (needs the runner or the team gateway to run without a tab open); write a step's result to a warehouse table, dbt `materialized: table` style |
+| Python steps | Pyodide in the workflow sandbox, for pandas-style transforms |
 | Team gateway | Self-hosted server speaking the runner protocol over WebSocket, for shared connections, SSO and audit |
 | Vendor HTTP drivers | Neon serverless Postgres, Supabase, Upstash Redis REST: Postgres/Redis without the runner for those vendors |
 | Windows / Linux runner | Same code, registry or `~/.config` manifest location |
