@@ -1,61 +1,107 @@
-/* Design tokens, copied from design/mockup.html. Light by default, dark via prefers-color-scheme or data-theme. */
-:root {
-  --bg: #e7ebef;
-  --chrome: #dde3e9;
-  --chrome-tab: #f6f8fa;
-  --surface: #ffffff;
-  --surface-2: #f3f6f8;
-  --line: #d6dde3;
-  --line-soft: #e8edf1;
-  --fg: #16212b;
-  --muted: #5c6b78;
-  --faint: #8a97a3;
-  --accent: #0b6e8a;
-  --accent-soft: #dcf0f5;
+/* Design tokens. Dark (TablePlus-like, near-black neutrals) is the default; <html data-theme>
+   picks the theme: "dark", "light", or "system" (follows prefers-color-scheme). The value
+   comes from Settings → Appearance; see src/app/lib/theme.ts and public/theme-boot.js. */
+:root, :root[data-theme="dark"] {
+  --bg: #1e1e1e;
+  --chrome: #252526;
+  --chrome-tab: #252526;
+  --surface: #1e1e1e;
+  --surface-2: #252526;
+  --surface-3: #2d2d2d;
+  --hover: rgb(255 255 255 / .055);
+  --hover-strong: rgb(255 255 255 / .09);
+  --line: #363636;
+  --line-soft: #2b2b2b;
+  --fg: #d4d4d4;
+  --fg-strong: #ececec;
+  --muted: #9a9a9a;
+  --faint: #6f6f6f;
+  --accent: #2b6fdc;
+  --accent-text: #6ea8ff;
+  --accent-soft: rgb(59 130 246 / .18);
   --accent-fg: #ffffff;
-  --sel: #e3f1f6;
-  --env-prod: #c4352b;
-  --env-stage: #b7791f;
-  --env-dev: #2f6fd6;
-  --env-local: #6b7a87;
-  --edit-bg: #fff3cf;
-  --edit-fg: #7a5200;
-  --add-bg: #e1f5e6;
-  --add-fg: #1f6b35;
-  --del-bg: #fde4e1;
-  --del-fg: #a3271f;
-  --kw: #8a3ab9;
-  --str: #1f7a4d;
-  --num: #b4540a;
-  --fn: #1b5fb5;
-  --com: #7b8794;
-  --param: #a0305f;
-  --bar: #3a8fa6;
-  --bar-track: #e8edf1;
-  --curcol: #eef6f9;
-  --shadow: 0 10px 30px rgba(22, 33, 43, .14);
-  --check-a: #ffffff;
-  --check-b: #e2e7eb;
-  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d1318; --chrome: #1a232b; --chrome-tab: #222d36; --surface: #151d24; --surface-2: #1b252d;
-    --line: #2b3843; --line-soft: #222d36; --fg: #e3eaf0; --muted: #9aa9b5; --faint: #6d7c88;
-    --accent: #3fb6d3; --accent-soft: #143845; --accent-fg: #071a21; --sel: #16323d;
-    --env-prod: #ef6a5f; --env-stage: #e0a748; --env-dev: #6f9df0; --env-local: #8e9ca8;
-    --edit-bg: #3d3112; --edit-fg: #f3cf75; --add-bg: #15361f; --add-fg: #86d79c; --del-bg: #43201d; --del-fg: #f39a91;
-    --kw: #d08cf2; --str: #7fd3a4; --num: #f0a45d; --fn: #7fb2f5; --com: #7a8794; --param: #f08bb5; --bar: #3fb6d3; --bar-track: #26323c; --curcol: #18272f; --shadow: 0 10px 30px rgba(0,0,0,.45);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0d1318; --chrome: #1a232b; --chrome-tab: #222d36; --surface: #151d24; --surface-2: #1b252d;
-  --line: #2b3843; --line-soft: #222d36; --fg: #e3eaf0; --muted: #9aa9b5; --faint: #6d7c88;
-  --accent: #3fb6d3; --accent-soft: #143845; --accent-fg: #071a21; --sel: #16323d;
-  --env-prod: #ef6a5f; --env-stage: #e0a748; --env-dev: #6f9df0; --env-local: #8e9ca8;
-  --edit-bg: #3d3112; --edit-fg: #f3cf75; --add-bg: #15361f; --add-fg: #86d79c; --del-bg: #43201d; --del-fg: #f39a91;
-  --kw: #d08cf2; --str: #7fd3a4; --num: #f0a45d; --fn: #7fb2f5; --com: #7a8794; --param: #f08bb5; --bar: #3fb6d3; --bar-track: #26323c; --curcol: #18272f; --shadow: 0 10px 30px rgba(0,0,0,.45);
+  --btn: #2f2f2f;
+  --btn-hover: #383838;
+  --btn-line: #3c3c3c;
+  --field: #252525;
+  --field-line: #3a3a3a;
+  --sel: #0a5ad4;
+  --sel-fg: #ffffff;
+  --sel-soft: rgb(10 90 212 / .28);
+  --cur-cell: #ff5a52;
+  --grid-bg: #1e1e1e;
+  --grid-alt: #262626;
+  --grid-head: #2a2a2a;
+  --grid-line: #2f2f2f;
+  --env-prod: #e5534b;
+  --env-stage: #d6a03c;
+  --env-dev: #4c8dff;
+  --env-local: #a3a3a3;
+  --edit-bg: #3d3313;
+  --edit-fg: #f5d069;
+  --add-bg: #17351f;
+  --add-fg: #82e09c;
+  --del-bg: #431e1c;
+  --del-fg: #ff958c;
+  --kw: #d09af5;
+  --str: #8fd9a1;
+  --num: #f4ab66;
+  --fn: #82b1ff;
+  --com: #7d828a;
+  --param: #f590bd;
+  --bar: #2b6fdc;
+  --bar-track: #2d2d2d;
+  --curcol: #262b33;
+  --scrim: rgb(0 0 0 / .55);
+  --shadow: 0 12px 36px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .06);
+  --check-a: #2a2a2a;
+  --check-b: #1f1f1f;
+  --ring: rgb(255 255 255 / .1);
+  --elev: #2a2a2a;
+  --seg-bg: #1a1a1a;
+  --on-env: #141414;
+  --danger: #c8423a;
+  --scroll: #474747;
+  --on-color: #ffffff;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "IBM Plex Sans", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --fs: 13.5px;
+  --fs-sm: 12px;
+  --r: 6px;
+  --r-lg: 8px;
   color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f4f4f4; --chrome: #ececec; --chrome-tab: #ececec; --surface: #ffffff; --surface-2: #f6f6f6; --surface-3: #ebebeb;
+  --hover: rgb(0 0 0 / .045); --hover-strong: rgb(0 0 0 / .08);
+  --line: #d9d9d9; --line-soft: #e8e8e8; --fg: #1f1f1f; --fg-strong: #000000; --muted: #5f5f5f; --faint: #8c8c8c;
+  --accent: #0a64d8; --accent-text: #0a5ad4; --accent-soft: rgb(10 100 216 / .1); --accent-fg: #ffffff;
+  --btn: #ffffff; --btn-hover: #f2f2f2; --btn-line: #d4d4d4; --field: #ffffff; --field-line: #d4d4d4;
+  --sel: #0a5ad4; --sel-fg: #ffffff; --sel-soft: rgb(10 90 212 / .12); --cur-cell: #e5484d;
+  --grid-bg: #ffffff; --grid-alt: #f7f7f7; --grid-head: #f0f0f0; --grid-line: #e6e6e6;
+  --env-prod: #c4352b; --env-stage: #9a6312; --env-dev: #2f6fd6; --env-local: #6b6b6b;
+  --edit-bg: #fff3cf; --edit-fg: #7a5200; --add-bg: #e1f5e6; --add-fg: #1f6b35; --del-bg: #fde4e1; --del-fg: #a3271f;
+  --kw: #8a3ab9; --str: #1f7a4d; --num: #b4540a; --fn: #1b5fb5; --com: #7b7b7b; --param: #a0305f;
+  --bar: #0a64d8; --bar-track: #e6e6e6; --curcol: #eef3fa; --scrim: rgb(0 0 0 / .3);
+  --shadow: 0 12px 32px rgb(0 0 0 / .14), 0 0 0 1px rgb(0 0 0 / .06); --check-a: #ffffff; --check-b: #e5e5e5;
+  --ring: rgb(0 0 0 / .08); --scroll: #c6c6c6; --elev: #ffffff; --seg-bg: #e6e6e6; --on-env: #ffffff; --danger: #c4352b; --on-color: #ffffff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg: #f4f4f4; --chrome: #ececec; --chrome-tab: #ececec; --surface: #ffffff; --surface-2: #f6f6f6; --surface-3: #ebebeb;
+    --hover: rgb(0 0 0 / .045); --hover-strong: rgb(0 0 0 / .08);
+    --line: #d9d9d9; --line-soft: #e8e8e8; --fg: #1f1f1f; --fg-strong: #000000; --muted: #5f5f5f; --faint: #8c8c8c;
+    --accent: #0a64d8; --accent-text: #0a5ad4; --accent-soft: rgb(10 100 216 / .1); --accent-fg: #ffffff;
+    --btn: #ffffff; --btn-hover: #f2f2f2; --btn-line: #d4d4d4; --field: #ffffff; --field-line: #d4d4d4;
+    --sel: #0a5ad4; --sel-fg: #ffffff; --sel-soft: rgb(10 90 212 / .12); --cur-cell: #e5484d;
+    --grid-bg: #ffffff; --grid-alt: #f7f7f7; --grid-head: #f0f0f0; --grid-line: #e6e6e6;
+    --env-prod: #c4352b; --env-stage: #9a6312; --env-dev: #2f6fd6; --env-local: #6b6b6b;
+    --edit-bg: #fff3cf; --edit-fg: #7a5200; --add-bg: #e1f5e6; --add-fg: #1f6b35; --del-bg: #fde4e1; --del-fg: #a3271f;
+    --kw: #8a3ab9; --str: #1f7a4d; --num: #b4540a; --fn: #1b5fb5; --com: #7b7b7b; --param: #a0305f;
+    --bar: #0a64d8; --bar-track: #e6e6e6; --curcol: #eef3fa; --scrim: rgb(0 0 0 / .3);
+    --shadow: 0 12px 32px rgb(0 0 0 / .14), 0 0 0 1px rgb(0 0 0 / .06); --check-a: #ffffff; --check-b: #e5e5e5;
+  --ring: rgb(0 0 0 / .08); --scroll: #c6c6c6; --elev: #ffffff; --seg-bg: #e6e6e6; --on-env: #ffffff; --danger: #c4352b; --on-color: #ffffff;
+    color-scheme: light;
+  }
 }
