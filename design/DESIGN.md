@@ -408,13 +408,12 @@ asks once per session to read them again.
   progress bar and Stop.
 
 **Sheet stack (from VisiData):** every derived view opens as a new sheet on top of the
-current one. A breadcrumb shows the stack (`orders.csv › status frequency › status = paid`)
+current one. A breadcrumb shows the stack (`orders.csv › summary › status = 'paid'`)
 and `Esc` (or `q` with VisiData keys) goes back one.
 
 | Feature | What you get | dbui key | VisiData key |
 |---|---|---|---|
 | Column summary | Type, nulls, distinct, min, max, mean, top value and a histogram per column (DuckDB `SUMMARIZE`) | `⌘I` on header | `Shift+I` |
-| Frequency table | Counts and a bar for each value of the current column; `Enter` on a value filters the source sheet to it | `⌘⇧F` | `Shift+F` |
 | Sort | Ascending / descending on the current column, stackable | click header | `[` / `]` |
 | Filter | Regex on the current column, or a SQL `WHERE` expression | `⌘F` | `\|` / `z\|` |
 | Select rows | Select, unselect, toggle; open the selection as a new sheet | `Space` | `s` `u` `t` `"` |
@@ -425,7 +424,7 @@ and `Esc` (or `q` with VisiData keys) goes back one.
 | Row detail | `Enter` opens the row; nested JSONL objects and arrays shown as a tree | `Enter` | `Enter` |
 | Expand nested | Turn a nested JSON column into its own columns | header menu | `(` |
 | SQL | The **SQL** button opens a SQL panel at the bottom of the sheet (resizable; a toolbar row with **Run** above the editor, which has autocomplete). The file is the table named there. Any DuckDB SQL runs, and the result opens as a new sheet (`Esc` goes back) | `⌘E`, then `⌘↵` | — |
-| Details | Right-hand pane (same as a connection's) showing the selected rows' fields, read-only; long text wraps and URLs are links. Resizable, and stays open for the next file | `⌘⌥R` | — |
+| Details | Right-hand pane (same as a connection's) showing the selected rows' fields, read-only; long text wraps and URLs are links. Each field has a copy button. Resizable, and stays open for the next file | `⌘⌥R` | — |
 
 **Cells:** a whole `http(s)://` URL gets a small open-link button that opens it in a new tab.
 No other scheme becomes a link. Double-clicking a column's header edge fits the column to its
@@ -944,6 +943,9 @@ There's no Chrome side panel.
 - Shows the selected row as a vertical form. There's one field per column, with its name and type on
   the right (`uuid`, `jsonb`, `timestamptz`).
 - A search box filters the fields, which helps on wide tables.
+- Each field has a small copy button beside its type. It copies that field's value as shown,
+  pending edit included: JSON is copied indented, and NULL copies as an empty string. A check
+  shows for a moment after copying.
 - Editors fit the type:
   - JSON / `jsonb` is pretty-printed with colours and can be folded
   - `bool` is a TRUE / FALSE / NULL menu
@@ -970,14 +972,14 @@ There's no Chrome side panel.
 
 ### 4.3 File sheet layout
 ```
-┌ orders.csv › status frequency                         CSV · 1.2 GB · 9.4M rows ┐
+┌ ⌂ orders.csv › summary      CSV · 1.2 GB · 9.4M rows  Summary Filter SQL ◨Details┐
 ├────────────────────────────────────────────────────────────────────────────────┤
-│ status      count      %      ███████████████████████████                      │
-│ paid        6,102,331  64.9%  █████████████████                                │
-│ pending     2,011,804  21.4%  ██████                                           │
-│ refunded      880,112   9.4%  ██                                               │
+│ column_name  column_type  min         max         approx_unique  null_%       │
+│ id           BIGINT       1           9400000     9391022        0.0%         │
+│ status       VARCHAR      paid        refunded    3              0.0%         │
+│ total        DOUBLE       0.5         4999.0      48210          0.2%         │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│ Enter: filter source · Esc: back · ⌘⇧F: frequency · ⌘I: summary   4 values     │
+│ Esc: back · ⌘I: summary · ⌘F: filter · ⌘E: SQL                   3 rows · 41 ms │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -987,7 +989,7 @@ There's no Chrome side panel.
 | Relational (pg, sqlite, duckdb) | schemas → tables / views / functions | Data grid + filter bar, Structure (columns, indexes, FKs, DDL), Query editor |
 | Key-value (Redis) | db 0–15, keys grouped by `:` prefix | Key list (SCAN, type, TTL, memory) + value editor per type |
 | Warehouse (BigQuery, ClickHouse) | projects/databases → datasets → tables, with partition and size info | Query editor (BigQuery: live dry-run estimate), schema view, job/query history with bytes read |
-| File | open files and recent files | Sheet stack, column summary, frequency, pivot, SQL over files |
+| File | open files and recent files | Sheet stack, column summary, pivot, SQL over files |
 
 ### 4.5 Keyboard map
 | Action | Keys |
@@ -1107,7 +1109,7 @@ chrome-db-viewer/
 | # | Scope | Done when |
 |---|---|---|
 | M0 | MV3 skeleton (Vite + React), full-page app tab with Home, toolbar click opens or focuses it, CSP/COOP/COEP set, CI build | Extension loads unpacked and opens the app tab |
-| M1 | Grid + **DuckDB-WASM** + **file sheets** (CSV/JSONL/Parquet open, sort, filter, summary, frequency, sheet stack) | Open a 5 GB CSV and get a frequency table without the tab running out of memory |
+| M1 | Grid + **DuckDB-WASM** + **file sheets** (CSV/JSONL/Parquet open, sort, filter, summary, sheet stack) | Open a 5 GB CSV and get its column summary without the tab running out of memory |
 | M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support; image and video downloads open in the media viewer | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
 | M2 | **SQLite** and **DuckDB** files, SQL editor (CodeMirror, autocomplete, history), cancel; file sheet editing and save | Query across a `.duckdb` file and two CSVs in one statement |
 | M3 | **BigQuery**: Chrome account, web auth flow, service account key, pasted token, impersonation; dry-run cost guard; job history | Same query works signed in three different ways, with the bytes cap enforced |
