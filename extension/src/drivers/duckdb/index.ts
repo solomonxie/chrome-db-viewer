@@ -295,10 +295,28 @@ export class DuckDriver implements Driver {
       } else {
         const regName = claimFileName(name);
         this.files.push(regName);
-        if (remote) await engine.registerFileURL(regName, remote);
+        if (isRemoteText) {
+          // Text has to be read in full anyway. One GET from the page works for signed URLs
+          // (GCS, S3) that refuse the HEAD DuckDB's HTTP reader starts with.
+          const bytes = await this.fetchBytes(remote!);
+          size = bytes.byteLength;
+          await engine.registerFileBuffer(regName, bytes);
+        } else if (remote) await engine.registerFileURL(regName, remote);
         else await engine.registerFile(regName, file!);
         materialized = typeof o.materialize === "boolean" ? o.materialize : size !== undefined && size < MATERIALIZE_LIMIT_BYTES;
-        await conn.query(`CREATE ${materialized ? "TABLE" : "VIEW"} ${target} AS SELECT * FROM ${readerSql(regName, format)}`);
+        const create = () => conn.query(`CREATE ${materialized ? "TABLE" : "VIEW"} ${target} AS SELECT * FROM ${readerSql(regName, format)}`);
+        try {
+          await create();
+        } catch (e) {
+          if (!remote || isRemoteText) throw e;
+          // Parquet over HTTP needs HEAD and Range requests; when the server refuses them, read it whole.
+          await engine.dropFile(regName).catch(() => undefined);
+          const bytes = await this.fetchBytes(remote);
+          size = bytes.byteLength;
+          await engine.registerFileBuffer(regName, bytes);
+          materialized = typeof o.materialize === "boolean" ? o.materialize : size < MATERIALIZE_LIMIT_BYTES;
+          await create();
+        }
       }
     } catch (e) {
       const err = toDriverError(e);

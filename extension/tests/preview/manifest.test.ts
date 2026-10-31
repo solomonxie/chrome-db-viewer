@@ -21,6 +21,9 @@ test("the manifest keeps the COEP/COOP headers DuckDB-WASM threads need", () => 
 
 test("the manifest grants all-sites host access at install, so Browser preview works with no prompt", () => {
   expect(manifest.host_permissions).toEqual(expect.arrayContaining(["https://*/*", "http://*/*"]));
+  // Local files (dropped onto Chrome, finished downloads) are read from the page with XHR;
+  // Chrome also needs "Allow access to file URLs" switched on for the extension.
+  expect(manifest.host_permissions).toContain("file:///*");
   // The BigQuery origins stay.
   expect(manifest.host_permissions).toEqual(expect.arrayContaining(["https://bigquery.googleapis.com/*", "https://oauth2.googleapis.com/*", "https://iamcredentials.googleapis.com/*"]));
   expect(manifest.optional_host_permissions ?? []).not.toContain("https://*/*");

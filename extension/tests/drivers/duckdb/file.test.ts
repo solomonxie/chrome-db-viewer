@@ -201,3 +201,23 @@ test("file:// src (a file dropped onto Chrome) is read through readFileUrl, not 
   expect(Number(rows[0]![0])).toBe(20);
   await driver.disconnect();
 });
+
+test("a signed URL that refuses HEAD (GCS, S3) still opens: the CSV is fetched once with GET", async () => {
+  const url = "https://storage.googleapis.com/bucket/creatives_e2e_custom-2026_10_23_21_45_38_840958-000000000000.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=ab12";
+  const calls: string[] = [];
+  const signedOnlyGet = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    calls.push(method);
+    // A URL signed for GET answers 403 to anything else.
+    if (method !== "GET") return new Response(null, { status: 403 });
+    return new Response(await fixtureFile("orders.csv").arrayBuffer(), { status: 200 });
+  }) as typeof fetch;
+  const d = createDriver({ engine: testEngine, fetch: signedOnlyGet });
+  await d.connect(cfg({ src: url }));
+  expect(calls).toEqual(["HEAD", "GET"]);
+  const nodes = await d.listObjects([]);
+  expect(nodes[0]!.meta).toBe("CSV · 845 B · 20 rows");
+  const { rows } = await run(d, "SELECT customer FROM sheet ORDER BY id LIMIT 1");
+  expect(rows[0]).toEqual(["bob"]);
+  await d.disconnect();
+});

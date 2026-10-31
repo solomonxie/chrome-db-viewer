@@ -38,7 +38,8 @@
     "https://oauth2.googleapis.com/*",
     "https://iamcredentials.googleapis.com/*",
     "https://*/*",
-    "http://*/*"
+    "http://*/*",
+    "file:///*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",

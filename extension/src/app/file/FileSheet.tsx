@@ -23,7 +23,11 @@ import { connectionSource } from "../lib/completion";
 import { Splitter, usePaneWidth } from "../components/Splitter";
 import { Icon } from "../components/Icon";
 
-type Phase = { kind: "loading" } | { kind: "pick" } | { kind: "error"; message: string; name: string } | { kind: "ready"; driver: Driver; table: string; name: string; size?: number; demo: boolean };
+type Phase =
+  | { kind: "loading" }
+  | { kind: "pick" }
+  | { kind: "error"; message: string; name: string; code?: string }
+  | { kind: "ready"; driver: Driver; table: string; name: string; size?: number; demo: boolean };
 
 async function openFileDriver(cfg: ConnectionConfig): Promise<{ driver: Driver; table: string }> {
   const driver = await createDriver("file");
@@ -42,6 +46,14 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
     await driver.connect({ id: "demo-file", name, driver: "file", env: "local", readOnly: true, options: { demo: true, demoFile: "orders.csv" } });
     setPhase({ kind: "ready", driver, table: "orders.csv", name: "orders.csv (demo data)", demo: true });
   }, []);
+
+  // Fallback when Chrome won't let the page read a file:// URL: the same file through the picker.
+  const chooseFromDisk = async () => {
+    const h = await pickFile();
+    if (!h) return;
+    const r = await rememberFile(h);
+    navigate({ name: "file", fileHandleId: r.id });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +86,7 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
         const { driver, table } = await openFileDriver(cfg);
         if (!cancelled) setPhase({ kind: "ready", driver, table, name, size, demo: false });
       } catch (e) {
-        if (!cancelled) setPhase({ kind: "error", message: (e as Error).message, name });
+        if (!cancelled) setPhase({ kind: "error", message: (e as Error).message, name, code: (e as { code?: string }).code });
       }
     })();
     return () => {
@@ -90,16 +102,33 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
         <div className="install">
           <h2>Couldn't open {phase.name}</h2>
           <div className="err">{phase.message}</div>
-          <p>The file engine (DuckDB-WASM) may not be built into this version yet.</p>
+          {phase.code === "file_access" ? (
+            <p>
+              On <b>chrome://extensions</b>, open Chrome DB Viewer's <b>Details</b>, turn on <b>Allow access to file URLs</b>, and press the extension's reload button (Chrome only applies new file
+              permissions after a reload). Or open the file once from disk below; it's remembered under recent files.
+            </p>
+          ) : (
+            <p>If the link has expired or needs a sign-in, open it in a normal tab first, or download it and open the file from disk.</p>
+          )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn primary" onClick={() => void openDemo(phase.name)}>
-              Try the sheet with demo data
-            </button>
-            {src && (
+            {phase.code === "file_access" && (
+              <button className="btn primary" onClick={() => void chooseFromDisk()}>
+                Choose {phase.name.length > 40 ? "the file" : phase.name}…
+              </button>
+            )}
+            {phase.code === "file_access" && (
+              <button className="btn" onClick={() => void chrome.tabs?.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` })}>
+                Open extension settings
+              </button>
+            )}
+            {src && !/^file:/i.test(src) && (
               <button className="btn" onClick={() => void chrome.downloads?.download({ url: src })}>
                 Download instead
               </button>
             )}
+            <button className="btn" onClick={() => void openDemo(phase.name)}>
+              Try with demo data
+            </button>
             <button className="btn" onClick={() => navigate({ name: "home" })}>
               Home
             </button>
