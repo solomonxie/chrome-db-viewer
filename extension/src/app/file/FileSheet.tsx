@@ -1,4 +1,4 @@
-// File sheet (#file): breadcrumb sheet stack over createDriver("file"), with frequency,
+// File sheet (#file): breadcrumb sheet stack over createDriver("file"), with
 // summary, sort, filter, a SQL bar for any query over the file, and a Details pane. While the DuckDB driver is still a placeholder, the error card
 // offers the demo sheet so the UI can be tried.
 
@@ -10,11 +10,11 @@ import { DataGrid, type GridCursor } from "../components/DataGrid";
 import { CommandPalette, useToast, type PaletteCommand } from "../components/ui";
 import { ensureReadPermission, pickFile, recentFiles, rememberFile, rememberUrl } from "../lib/files";
 import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
-import { MOD, SHIFT, useKeys } from "../lib/keys";
+import { MOD, useKeys } from "../lib/keys";
 import { navigate } from "../lib/route";
 import * as db from "../store/db";
 import { useResult } from "../conn/useResult";
-import { cycleSort, equalsCondition, filteredSheet, frequencySheet, querySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
+import { cycleSort, equalsCondition, filteredSheet, querySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
 import { DetailsPane, type DetailsCtx } from "../conn/DetailsPane";
 import type { DetailsSource } from "../conn/model";
 import { emptyPending } from "../lib/changes";
@@ -242,24 +242,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   const push = (s: Sheet) => setStack((st) => [...st, s]);
   const back = () => setStack((st) => (st.length > 1 ? st.slice(0, -1) : st));
 
-  const openFrequency = () => {
-    if (sheet.kind !== "source") return toast("Frequency works on the data sheet.");
-    if (!curColumn) return toast("Pick a column first (click a cell).");
-    push(frequencySheet(sheet, curColumn));
-  };
   const openSummary = () => push(summarySheet(sheet.kind === "source" ? sheet : stack[0]!));
-
-  // Enter on a frequency row filters the source sheet to that value.
-  const activate = (row: number) => {
-    if (sheet.kind === "frequency") {
-      const v = state.rows[row]?.[0] ?? null;
-      const parent = stack[stack.length - 2] ?? stack[0]!;
-      push(filteredSheet(parent, equalsCondition(sheet.column, v, driver.dialect), `${sheet.column} = ${cellText(v)}`));
-    } else if (sheet.kind === "summary") {
-      const name = state.rows[row]?.[0];
-      if (typeof name === "string") push(frequencySheet(stack[0]!, name));
-    }
-  };
 
   const openSelection = () => {
     if (sheet.kind !== "source" || selection.size === 0 || !curColumn) return;
@@ -272,7 +255,6 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
 
   useKeys({
     escape: back,
-    "mod+shift+f": openFrequency,
     "mod+i": openSummary,
     "mod+f": () => setFilter(filter === null ? "" : null),
     "mod+k": () => setPalette(true),
@@ -289,7 +271,6 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   });
 
   const commands: PaletteCommand[] = [
-    { id: "freq", label: "Frequency table of current column", hint: `${MOD}${SHIFT}F`, run: openFrequency },
     { id: "sum", label: "Column summary", hint: `${MOD}I`, run: openSummary },
     { id: "filter", label: "Filter (SQL WHERE)", hint: `${MOD}F`, run: () => setFilter("") },
     { id: "sql", label: "SQL bar: query this file", hint: `${MOD}E`, run: () => setShowSql(true) },
@@ -299,8 +280,6 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     { id: "home", label: "Go to Home", run: () => navigate({ name: "home" }) },
   ];
 
-  const maxCount = sheet.kind === "frequency" ? Math.max(1, ...state.rows.map((r) => Number(r[1]) || 0)) : 1;
-  const freqTotal = sheet.kind === "frequency" ? state.rows.reduce((a, r) => a + (Number(r[1]) || 0), 0) : 0;
   const ext = props.name.split(".").pop()?.toUpperCase() ?? "";
 
   return (
@@ -326,9 +305,6 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
             {props.size !== undefined && ` · ${fmtBytes(props.size)}`}
             {totalRows !== null && ` · ${fmtInt(totalRows)} rows`}
           </span>
-          <button className="btn" onClick={openFrequency} title={`Frequency of the current column (${MOD}${SHIFT}F)`}>
-            Frequency
-          </button>
           <button className="btn" onClick={openSummary} title={`Column summary (${MOD}I)`}>
             Summary
           </button>
@@ -386,35 +362,22 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
               {state.error}
             </div>
           )}
-          {sheet.kind === "frequency" ? (
-            <FrequencyTable
-              column={sheet.column}
-              rows={state.rows}
-              max={maxCount}
-              total={freqTotal}
-              cursor={cursor?.row ?? null}
-              onCursor={(r) => setCursor({ row: r, col: 0 })}
-              onActivate={activate}
-            />
-          ) : (
-            <DataGrid
-              columns={state.columns}
-              rowCount={state.rows.length}
-              value={(r, c) => state.rows[r]?.[c] ?? null}
-              sort={sheet.kind === "source" ? sheet.sort : undefined}
-              onSort={(name, additive) => sheet.kind === "source" && setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort, name, additive) }])}
-              selection={selection}
-              cursor={cursor}
-              onSelection={(s, c) => {
-                setSelection(s);
-                setCursor(c);
-              }}
-              onActivate={activate}
-              highlightColumn
-              resetKey={sql}
-              onCopy={(rows) => void navigator.clipboard.writeText(rows.map((r) => (state.rows[r] ?? []).map(cellText).join("\t")).join("\n")).then(() => toast("Copied"))}
-            />
-          )}
+          <DataGrid
+            columns={state.columns}
+            rowCount={state.rows.length}
+            value={(r, c) => state.rows[r]?.[c] ?? null}
+            sort={sheet.kind === "source" ? sheet.sort : undefined}
+            onSort={(name, additive) => sheet.kind === "source" && setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort, name, additive) }])}
+            selection={selection}
+            cursor={cursor}
+            onSelection={(s, c) => {
+              setSelection(s);
+              setCursor(c);
+            }}
+            highlightColumn
+            resetKey={sql}
+            onCopy={(rows) => void navigator.clipboard.writeText(rows.map((r) => (state.rows[r] ?? []).map(cellText).join("\t")).join("\n")).then(() => toast("Copied"))}
+          />
         </div>
         {showDetails && <Splitter side="right" label="Resize Details pane" size={detailsPane} onResize={detailsPane.setWidth} />}
         {showDetails && <DetailsPane ctx={READ_ONLY_DETAILS} source={details} />}
@@ -456,12 +419,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
       )}
       <div className="foot">
         <span className="hint">
-          {sheet.kind === "frequency" ? <span>Enter: filter source</span> : sheet.kind === "summary" ? <span>Enter: frequency of that column</span> : <span>Click header: sort</span>}
+          {sheet.kind === "source" && <span>Click header: sort</span>}
           <span>Esc: back</span>
-          <span>
-            {MOD}
-            {SHIFT}F: frequency
-          </span>
           <span>{MOD}I: summary</span>
           <span>{MOD}F: filter</span>
           <span>{MOD}E: SQL</span>
@@ -469,7 +428,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
         <span className="spacer" />
         <span className="count">
           {selection.size > 1 ? `${fmtInt(selection.size)} selected · ` : ""}
-          {fmtInt(state.rows.length)} {sheet.kind === "frequency" ? "values" : "rows"}
+          {fmtInt(state.rows.length)} rows
           {sheet.kind === "source" && state.rows.length === 100000 ? " (first 100,000)" : ""}
           {state.summary && ` · ${fmtMs(state.summary.ms)}`}
         </span>
@@ -495,58 +454,4 @@ function writeFlag(key: string, on: boolean) {
   } catch {
     // storage blocked: the choice lasts for this page only
   }
-}
-
-function FrequencyTable(props: { column: string; rows: unknown[][]; max: number; total: number; cursor: number | null; onCursor: (r: number) => void; onActivate: (r: number) => void }) {
-  return (
-    <div
-      className="gridwrap"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        const cur = props.cursor ?? -1;
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          props.onCursor(Math.min(props.rows.length - 1, cur + 1));
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          props.onCursor(Math.max(0, cur - 1));
-        } else if (e.key === "Enter" && props.cursor !== null) props.onActivate(props.cursor);
-      }}
-      ref={(el) => el?.focus()}
-    >
-      <table className="plain" style={{ fontFamily: "var(--font-mono)" }}>
-        <thead>
-          <tr>
-            <th>{props.column}</th>
-            <th style={{ textAlign: "right" }}>count</th>
-            <th style={{ textAlign: "right" }}>%</th>
-            <th style={{ width: "40%" }} />
-          </tr>
-        </thead>
-        <tbody>
-          {props.rows.map((r, i) => {
-            const n = Number(r[1]) || 0;
-            return (
-              <tr
-                key={i}
-                onClick={() => props.onCursor(i)}
-                onDoubleClick={() => props.onActivate(i)}
-                style={{ cursor: "pointer", background: props.cursor === i ? "var(--sel)" : undefined }}
-                aria-selected={props.cursor === i}
-              >
-                <td className={r[0] === null ? "faint" : ""}>{cellText(r[0] as never)}</td>
-                <td style={{ textAlign: "right" }}>{fmtInt(n)}</td>
-                <td style={{ textAlign: "right" }}>{props.total ? ((n / props.total) * 100).toFixed(1) : "0.0"}%</td>
-                <td>
-                  <div className="fbar">
-                    <i style={{ width: `${(n / props.max) * 100}%` }} />
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
 }

@@ -48,7 +48,7 @@ test("filter rows compile to SQL the demo driver runs", async () => {
   expect(totals).toEqual(totals.slice().sort((a, b) => b - a));
 });
 
-test("frequency and summarize queries work", async () => {
+test("group-by and summarize queries work", async () => {
   const d = await connected();
   const freq = await collect(d.execute({ sql: `SELECT "status", count(*) AS "count" FROM "orders" GROUP BY "status" ORDER BY "count" DESC` }));
   expect(freq.columns.map((c) => c.name)).toEqual(["status", "count"]);

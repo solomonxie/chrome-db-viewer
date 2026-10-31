@@ -35,7 +35,7 @@ export interface DataGridProps {
   onEdit?: (row: number, col: number, text: string) => void;
   onOpenFk?: (row: number, col: number, newTab: boolean) => void;
   onContextMenu?: (e: RMouseEvent, row: number, col: number) => void;
-  /** Enter on a non-editable grid (file-sheet frequency → filter source). */
+  /** Enter or double-click on a non-editable grid. */
   onActivate?: (row: number, col: number) => void;
   /** Highlights the cursor column (file sheets). */
   highlightColumn?: boolean;

@@ -12,7 +12,7 @@ import {
   formatTimestamp,
   formatUuid,
 } from "../../../src/drivers/duckdb/convert";
-import { copyToSql, detectFormat, fileNameOf, frequency, readerSql, saveFormatFor, sortedFiltered, summarize } from "../../../src/drivers/duckdb/sheet";
+import { copyToSql, detectFormat, fileNameOf, readerSql, saveFormatFor, sortedFiltered, summarize } from "../../../src/drivers/duckdb/sheet";
 
 test("detectFormat: plain, double and unsupported extensions", () => {
   expect(detectFormat("orders.csv")).toEqual({ format: "csv", compression: null, ext: "csv" });
@@ -39,10 +39,6 @@ test("readerSql picks the DuckDB reader and options", () => {
 });
 
 test("sheet SQL builders", () => {
-  expect(frequency("status")).toBe(
-    `SELECT "status", count(*) AS "count", round(100.0 * count(*) / sum(count(*)) OVER (), 2) AS "percent" FROM "sheet" GROUP BY "status" ORDER BY "count" DESC, "status" ASC NULLS LAST`,
-  );
-  expect(frequency("a\"b", ["x > 1", "y = 2"])).toContain(`FROM "sheet" WHERE (x > 1) AND (y = 2) GROUP BY "a""b"`);
   expect(summarize()).toBe(`SUMMARIZE "sheet"`);
   expect(summarize("total > 10")).toBe(`SUMMARIZE SELECT * FROM "sheet" WHERE total > 10`);
   expect(sortedFiltered()).toBe(`SELECT * FROM "sheet"`);

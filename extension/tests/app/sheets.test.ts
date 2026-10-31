@@ -1,16 +1,11 @@
 import { expect, test } from "vitest";
 import { duckdbDialect } from "@core/sql";
-import { cycleSort, equalsCondition, filteredSheet, frequencySheet, querySheet, sheetSql, sourceSheet, summarySheet } from "../../src/app/file/sheets";
+import { cycleSort, equalsCondition, filteredSheet, querySheet, sheetSql, sourceSheet, summarySheet } from "../../src/app/file/sheets";
 
 const src = sourceSheet("orders.csv");
 
 test("source sheet selects with sort and limit", () => {
   expect(sheetSql({ kind: "source", title: "t", where: [], sort: [{ column: "total", dir: "desc" }] }, "orders.csv", duckdbDialect, 100)).toBe(`SELECT * FROM "orders.csv" ORDER BY "total" DESC LIMIT 100`);
-});
-
-test("frequency groups by the column within the parent's filter", () => {
-  const f = frequencySheet(filteredSheet(src, `"paid" = TRUE`, "paid"), "status");
-  expect(sheetSql(f, "orders.csv", duckdbDialect)).toBe(`SELECT "status", count(*) AS "count" FROM "orders.csv" WHERE "paid" = TRUE GROUP BY "status" ORDER BY "count" DESC`);
 });
 
 test("summary uses SUMMARIZE, wrapping a filtered select", () => {

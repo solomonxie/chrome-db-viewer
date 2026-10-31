@@ -122,18 +122,6 @@ function orderClause(orderBy?: string | OrderBy[]): string {
   return ` ORDER BY ${orderBy.map((o) => `${q(o.column)} ${o.dir === "desc" ? "DESC" : "ASC"}`).join(", ")}`;
 }
 
-/**
- * Frequency table for one column: value, count and percent, most frequent first.
- * `where` filters the source rows first (SQL expressions, ANDed).
- */
-export function frequency(column: string, where?: string | string[], from: string = FILE_SHEET_TABLE): string {
-  const c = q(column);
-  return (
-    `SELECT ${c}, count(*) AS "count", round(100.0 * count(*) / sum(count(*)) OVER (), 2) AS "percent" ` +
-    `FROM ${table(from)}${whereClause(where)} GROUP BY ${c} ORDER BY "count" DESC, ${c} ASC NULLS LAST`
-  );
-}
-
 /** Column summary (DuckDB SUMMARIZE): type, min, max, unique, nulls, mean, quartiles. */
 export function summarize(where?: string | string[], from: string = FILE_SHEET_TABLE): string {
   const w = whereClause(where);

@@ -2,7 +2,7 @@
 // The "file" driver against real fixture files (tests/fixtures/files, made with the duckdb CLI).
 import { expect, test } from "vitest";
 import { collect, type ConnectionConfig, type Driver } from "../../../src/core/types";
-import { asDuckDriver, createDriver, FILE_SHEET_TABLE, frequency, sortedFiltered, summarize } from "../../../src/drivers/duckdb";
+import { asDuckDriver, createDriver, FILE_SHEET_TABLE, sortedFiltered, summarize } from "../../../src/drivers/duckdb";
 import { fixtureFile, testEngine } from "./engine";
 
 const cfg = (options: Record<string, unknown>): ConnectionConfig => ({ id: "f", name: "file", driver: "file", env: "local", readOnly: true, options });
@@ -82,19 +82,8 @@ test("large files stay a view and can't be edited", async () => {
   await d.disconnect();
 });
 
-test("sheet helpers: frequency, summarize, sortedFiltered", async () => {
+test("sheet helpers: summarize, sortedFiltered", async () => {
   const d = await openFile("orders.csv");
-  const freq = await run(d, frequency("status"));
-  expect(freq.columns.map((c) => c.name)).toEqual(["status", "count", "percent"]);
-  expect(freq.rows).toEqual([
-    ["pending", "7", 35],
-    ["refunded", "7", 35],
-    ["paid", "6", 30],
-  ]);
-
-  const filteredFreq = await run(d, frequency("customer", ["status = 'paid'"]));
-  expect(filteredFreq.rows.reduce((a, r) => a + Number(r[1]), 0)).toBe(6);
-
   const summary = await run(d, summarize());
   expect(summary.rows.map((r) => r[0])).toEqual(["id", "customer", "status", "total", "created_at"]);
 
