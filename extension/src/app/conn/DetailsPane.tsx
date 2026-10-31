@@ -75,6 +75,7 @@ export function DetailsPane({ ctx, source }: { ctx: DetailsCtx; source: DetailsS
                     <Highlight text={col.name} needle={needle} />
                   </b>
                   <small>{col.type}</small>
+                  {v !== MULTI && <CopyValue value={v} name={col.name} />}
                 </div>
                 <FieldEditor col={col} value={v} editable={editable && !(col.primaryKey && rows.length > 1)} onChange={(nv) => setValue(i, nv)} />
                 {col.references && v !== MULTI && v !== null && source?.onOpenFk && (
@@ -88,6 +89,33 @@ export function DetailsPane({ ctx, source }: { ctx: DetailsCtx; source: DetailsS
         </div>
       )}
     </div>
+  );
+}
+
+/** Text a field copies as: JSON for objects, plain text otherwise, empty for NULL. */
+export function copyText(v: Cell): string {
+  if (v === null) return "";
+  return typeof v === "object" ? JSON.stringify(v, null, 2) : cellText(v);
+}
+
+/** Small copy button in a field's header; shows a check for a moment after copying. */
+function CopyValue({ value, name }: { value: Cell; name: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className={"fcopy" + (done ? " done" : "")}
+      title={done ? "Copied" : `Copy ${name}`}
+      aria-label={`Copy ${name}`}
+      onClick={() =>
+        void navigator.clipboard.writeText(copyText(value)).then(() => {
+          setDone(true);
+          setTimeout(() => setDone(false), 1200);
+        })
+      }
+    >
+      <Icon name={done ? "check" : "copy"} className="ico sm" />
+    </button>
   );
 }
 

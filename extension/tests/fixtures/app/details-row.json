@@ -1,0 +1,14 @@
+{
+  "columns": [
+    { "name": "id", "type": "BIGINT", "nullable": false, "primaryKey": true },
+    { "name": "video_download_url", "type": "VARCHAR", "nullable": true },
+    { "name": "meta", "type": "JSON", "nullable": true },
+    { "name": "deleted_at", "type": "TIMESTAMP", "nullable": true }
+  ],
+  "values": [
+    "1202475063873",
+    "https://storage.googleapis.com/bucket/videos/C1465.mp4?X-Goog-Signature=ab12",
+    { "platform": "meta", "tags": ["ugc", "mop"] },
+    null
+  ]
+}
