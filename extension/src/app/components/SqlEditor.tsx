@@ -1,11 +1,13 @@
 // Plain textarea with a highlighted copy of its text drawn underneath. Typing, undo, IME and
 // selection stay native; only the colours come from the layer behind. With `completion`, a
 // suggestion list (src/app/lib/completion.ts) opens at the caret as you type a name or a dot:
-// ↑/↓ to move, Enter or Tab to insert, Esc to close, ⌃Space to open it on demand.
+// ↑/↓ to move, Enter or Tab to insert, Esc to close, ⌃Space to open it on demand. Otherwise
+// Tab indents with 4 spaces (Shift+Tab outdents) rather than moving focus.
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent, type TextareaHTMLAttributes } from "react";
 import { tokenize } from "../lib/sqlFormat";
 import { complete, type Completion, type CompletionContext, type CompletionSource } from "../lib/completion";
+import { handleTabKey } from "../lib/indent";
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & {
   value: string;
@@ -151,6 +153,8 @@ export const SqlEditor = forwardRef<HTMLTextAreaElement, Props>(function SqlEdit
             if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") setPopup(null);
           }
           onKeyDown?.(e);
+          // Tab indents (4 spaces) instead of leaving the editor; Shift+Tab outdents.
+          if (!e.defaultPrevented) handleTabKey(e, onChange);
         }}
         {...rest}
       />

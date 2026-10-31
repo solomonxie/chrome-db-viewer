@@ -2,6 +2,7 @@
 // Jinja tags coloured on top of the SQL and raw {{ x }} in a value position underlined amber.
 
 import { forwardRef, useMemo, useRef, type KeyboardEvent, type TextareaHTMLAttributes } from "react";
+import { handleTabKey } from "../lib/indent";
 import { tokenizeTemplate } from "../../collections/highlight";
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & {
@@ -33,7 +34,11 @@ export const TemplateEditor = forwardRef<HTMLTextAreaElement, Props>(function Te
           }
           onScroll?.(e);
         }}
-        onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => onKeyDown?.(e)}
+        onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+          onKeyDown?.(e);
+          // Tab indents (4 spaces) instead of leaving the editor; Shift+Tab outdents.
+          if (!e.defaultPrevented) handleTabKey(e, onChange);
+        }}
         {...rest}
       />
     </div>

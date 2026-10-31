@@ -348,16 +348,6 @@ export function QueryView(props: {
               ? `SELECT * FROM {{ table | ident }} WHERE day >= {{ start_date | sql }}\n\n${MOD}↵ renders and runs, ${MOD}S saves the template`
               : `SELECT * FROM …\n\n${MOD}↵ runs the statement at the cursor, ${MOD}⇧↵ runs all, ${MOD}. stops, ${MOD}⇧F formats`
           }
-          onKeyDown={(e) => {
-            if (e.key === "Tab" && !e.shiftKey) {
-              e.preventDefault();
-              const el = e.currentTarget;
-              const { selectionStart: a, selectionEnd: b } = el;
-              const v = el.value.slice(0, a) + "  " + el.value.slice(b);
-              props.onSql(v);
-              requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
-            }
-          }}
           aria-label={props.namedQueryId ? "Template editor" : "SQL editor"}
         />
         <div className="edbar">
