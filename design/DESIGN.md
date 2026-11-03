@@ -457,7 +457,8 @@ warning; Chrome evaluates the rule itself and dbui runs no content scripts.
 | How the file arrives | What dbui does |
 |---|---|
 | You click a link or type a URL ending in a data extension | A redirect rule sends the tab to `app.html?src=<url>`, and the viewer loads the file |
-| A site starts a download (Export button, `Content-Disposition: attachment`, no extension in the URL) | `downloads.onCreated` recognises the file name or MIME type and shows an **Open in dbui** prompt |
+| Opening a link turns into a download (a signed URL, a console "Download" that redirects, `Content-Disposition: attachment`, no extension in the URL) | `downloads.onDeterminingFilename` recognises the file name or MIME type. Because a tab navigated to the URL, dbui can fetch it again, so it cancels the download before anything is saved and opens the sheet directly, with no prompt |
+| A page saves a file itself (an Export button that builds a `blob:`, `<a download>`, *Save link as…*) | `downloads.onCreated` recognises the file name or MIME type and shows an **Open in dbui** prompt; the file is saved as usual |
 | A local file in Chrome (`file:///…/data.csv`) | Same redirect rule. Needs **Allow access to file URLs** turned on for dbui on `chrome://extensions`; the settings page links there and says so |
 | Double-clicking a file in Finder | Not possible. macOS can't make an extension the app for a file type. Drag it onto the dbui tab or use `⌘O` |
 

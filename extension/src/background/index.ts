@@ -2,7 +2,7 @@
 // and opens image/video downloads in the media viewer (§3.13).
 // The toolbar icon opens popup.html (manifest default_popup, DESIGN.md §4.1), not a handler here.
 
-import { handleDownloadCreated, loadPreviewSettings, localFileToOpen, mediaDisplayName, mediaKind, mediaViewerUrl, PREVIEW_SETTINGS_KEY, syncPreviewRules } from "../preview/index";
+import { handleDownloadCreated, loadPreviewSettings, localFileToOpen, mediaDisplayName, mediaKind, mediaViewerUrl, navigatedDataToOpen, PREVIEW_SETTINGS_KEY, syncPreviewRules } from "../preview/index";
 
 async function resync(): Promise<void> {
   try {
@@ -27,13 +27,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.permissions.onAdded.addListener(() => void resync());
 chrome.permissions.onRemoved.addListener(() => void resync());
 
-chrome.downloads.onCreated.addListener((item) => {
-  void handleDownloadCreated(item).catch((e) => console.error("dbui: download handler failed", e));
-});
-
-// Images and videos a site sends as a download open in media.html instead (src/preview/media.ts).
-// Only downloads that a tab's navigation turned into one: opening a signed URL or clicking a
-// plain link. "Save image as…", <a download> and the viewer's own Download button still save.
+// Downloads a tab's navigation turned into one (opening a signed URL, clicking a plain link) are
+// handled in onDeterminingFilename below: they open directly, with no file saved and no prompt.
+// "Save link as…", <a download>, blob: exports and dbui's own downloads aren't navigations; data
+// files among those still get the "Open in dbui?" prompt.
 const recentNavigations = new Map<string, number>();
 chrome.webNavigation.onBeforeNavigate.addListener(({ url, timeStamp }) => {
   for (const [old, time] of recentNavigations) {
@@ -42,23 +39,32 @@ chrome.webNavigation.onBeforeNavigate.addListener(({ url, timeStamp }) => {
   recentNavigations.set(url, timeStamp);
 });
 
+chrome.downloads.onCreated.addListener((item) => {
+  if (recentNavigations.has(item.url)) return;
+  void handleDownloadCreated(item).catch((e) => console.error("dbui: download handler failed", e));
+});
+
 // Here rather than onCreated: this is where Chrome knows the file name from Content-Disposition,
 // before any Save As dialog and before anything is written to disk.
 // - A data file dropped onto Chrome (file://) opens straight from where it is, with no copy in Downloads.
 // - Images and videos a tab navigated to open in media.html.
+// - Data files a tab navigated to (CSV, Parquet …) open in the file sheet, fetched again from the URL.
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  const navigated = recentNavigations.delete(item.url);
-  const media = item.byExtensionId === chrome.runtime.id || !navigated ? null : mediaKind(item);
+  const navigated = recentNavigations.delete(item.url) && item.byExtensionId !== chrome.runtime.id;
+  const media = navigated ? mediaKind(item) : null;
   const local = /^file:/i.test(item.finalUrl || item.url);
-  if (!media && !local) {
+  if (!media && !local && !navigated) {
     suggest();
     return;
   }
   void (async () => {
     const url = item.finalUrl || item.url;
+    const settings = await loadPreviewSettings();
     const target = media
       ? mediaViewerUrl(chrome.runtime.getURL(""), url, media, mediaDisplayName(url, item.filename))
-      : localFileToOpen(item, await loadPreviewSettings(), chrome.runtime.id);
+      : local
+        ? localFileToOpen(item, settings, chrome.runtime.id)
+        : navigatedDataToOpen(item, settings, chrome.runtime.id);
     if (!target) {
       suggest();
       return;

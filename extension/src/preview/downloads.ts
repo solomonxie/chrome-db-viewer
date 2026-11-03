@@ -76,6 +76,19 @@ export function localFileToOpen(item: Pick<chrome.downloads.DownloadItem, "url" 
   return name && classifyFilename(name, settings) ? viewerUrlFor(url) : null;
 }
 
+/**
+ * A data file that a tab's navigation turned into a download (a signed URL, an export link that
+ * redirects, a file sent as an attachment): the viewer URL to open instead, or null. Only http(s)
+ * URLs, which the viewer can fetch again itself. Called from downloads.onDeterminingFilename,
+ * where the name from Content-Disposition is known and nothing has been written yet; the caller
+ * cancels the download, so there's no file in Downloads and no prompt.
+ */
+export function navigatedDataToOpen(item: chrome.downloads.DownloadItem, settings: PreviewSettings, ownExtensionId?: string): string | null {
+  const url = item.finalUrl || item.url;
+  if (!isRefetchable(url)) return null;
+  return decideDownloadPrompt(item, settings, ownExtensionId).prompt ? viewerUrlFor(url) : null;
+}
+
 function isRefetchable(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }

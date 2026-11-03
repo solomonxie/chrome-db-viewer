@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { decideDownloadPrompt, handleDownloadCreated, localFileToOpen, openDownloadInDbui } from "../../src/preview/downloads";
+import { decideDownloadPrompt, handleDownloadCreated, localFileToOpen, navigatedDataToOpen, openDownloadInDbui } from "../../src/preview/downloads";
 import { syncPreviewRules } from "../../src/preview/index";
 import { DEFAULT_PREVIEW_SETTINGS, addExcludedDomain, type PreviewSettings } from "../../src/preview/settings";
 
@@ -161,4 +161,25 @@ test("a data file dropped onto Chrome opens from where it is; other local files 
   expect(localFileToOpen(item({ url: "https://x.test/a.csv" }), settings, "self")).toBeNull();
   expect(localFileToOpen(dropped, { ...settings, enabled: false }, "self")).toBeNull();
   expect(localFileToOpen({ ...dropped, byExtensionId: "self" }, settings, "self")).toBeNull();
+});
+
+test("a data file a tab navigated to opens straight in the viewer: signed URLs, redirects, attachments", () => {
+  stubChrome();
+  const settings = { ...DEFAULT_PREVIEW_SETTINGS, enabled: true };
+  // GCS console "Download": the URL has no extension, the redirect target and the attachment name do.
+  const redirected = item({
+    url: "https://storage.cloud.google.com/bucket/exports/creatives.csv?authuser=0",
+    finalUrl: "https://storage.googleapis.com/download/storage/v1/b/bucket/o/exports%2Fcreatives.csv?alt=media",
+    filename: "/Users/me/Downloads/creatives_e2e_custom-2026_10_28_14_53_42_431950-000000000000.csv",
+    mime: "application/octet-stream",
+  });
+  expect(navigatedDataToOpen(redirected, settings, "self")).toBe(`${EXT}app.html?src=${encodeURIComponent(redirected.finalUrl)}#file`);
+  expect(navigatedDataToOpen(item({ url: GCS_SIGNED, finalUrl: GCS_SIGNED }), settings, "self")).toBe(`${EXT}app.html?src=${encodeURIComponent(GCS_SIGNED)}#file`);
+  // Typed as CSV by the server, no extension anywhere.
+  expect(navigatedDataToOpen(item({ url: "https://app.test/export?id=7", mime: "text/csv" }), settings, "self")).not.toBeNull();
+  // Not data, a blob a page built, dbui's own download, the feature off: left to Chrome.
+  expect(navigatedDataToOpen(item({ url: "https://x.test/a.zip", mime: "application/zip" }), settings, "self")).toBeNull();
+  expect(navigatedDataToOpen(item({ url: "blob:https://app.test/uuid", mime: "text/csv", filename: "/x/r.csv" }), settings, "self")).toBeNull();
+  expect(navigatedDataToOpen({ ...redirected, byExtensionId: "self" }, settings, "self")).toBeNull();
+  expect(navigatedDataToOpen(redirected, { ...settings, enabled: false }, "self")).toBeNull();
 });

@@ -15,6 +15,7 @@ export {
   getPendingDownloadPrompt,
   handleDownloadCreated,
   localFileToOpen,
+  navigatedDataToOpen,
   openDownloadInDbui,
   viewerUrlFor,
   waitForDownloadComplete,
