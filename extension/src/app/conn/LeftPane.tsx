@@ -1,4 +1,4 @@
-// Left pane: Items (lazy object tree with search highlight and type filter), Collections (named
+// Left pane: Schema (lazy object tree with search highlight and type filter), Collections (named
 // queries: Postman-style), Workflows (multi-step pipelines: dbt-style), and History.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -208,7 +208,7 @@ export function LeftPane(props: {
       <>
         <div className="psearch">
           <Icon name="search" className="ico psearch-ico" />
-          <input placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search items" />
+          <input placeholder="Search schema" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Search schema" />
           {q && (
             <button className="btn icon ghost" onClick={() => setQ("")} title="Clear" aria-label="Clear search">
               <Icon name="clear" />
@@ -334,7 +334,7 @@ function FavoritesSection(props: {
 // pipelines built from them. Each is a folding section; one is open at a time.
 const TAB_KEYS = ["items", "collections", "workflows", "history"] as const;
 type PaneTabKey = (typeof TAB_KEYS)[number];
-const TAB_LABEL = { items: "Items", collections: "Collections", workflows: "Workflows", history: "History" } as const;
+const TAB_LABEL = { items: "Schema", collections: "Collections", workflows: "Workflows", history: "History" } as const;
 const TAB_ICON = { items: "items", collections: "collections", workflows: "workflow", history: "history" } as const;
 const TAB_HINT = {
   items: "Tables, views and other objects",

@@ -1,16 +1,16 @@
-// Workflows (code name: chains) in the "chains" store, one row per workflow. Each has a home
-// collection (collectionId) for its variables and named queries; the UI shows it as a tag.
+// Workflows (code name: chains) in the "chains" store, one row per workflow. Workflows and
+// collections are separate: a workflow's query steps can use named queries from any collection.
 
-import type { Chain, ChainStep, ChainStepKind, Collection, NamedQuery } from "../../collections/model";
-import { chainRowsFor, createCollection, deleteChainRow, getChainRow, listChainRows, listCollections, putChainRow, uniqueName } from "../../collections/store";
+import type { Chain, ChainStep, ChainStepKind, NamedQuery } from "../../collections/model";
+import { deleteChainRow, getChainRow, listChainRows, putChainRow, uniqueName } from "../../collections/store";
 import { uid } from "../store/db";
 
 export const STEP_KINDS: { kind: ChainStepKind; label: string; hint: string }[] = [
   { kind: "query", label: "Query", hint: "Runs a named query or inline SQL on a connection" },
-  { kind: "transform-sql", label: "Transform: SQL", hint: "SQL over earlier results, locally in DuckDB" },
-  { kind: "transform-script", label: "Transform: script", hint: "JavaScript over earlier results, in the sandbox" },
-  { kind: "set-vars", label: "Set variables", hint: "Picks values out of a result for later steps" },
-  { kind: "export", label: "Export", hint: "Writes a result to a CSV, JSONL or Parquet file" },
+  { kind: "transform-sql", label: "Transform: DuckDB", hint: "DuckDB SQL over earlier results, on this machine. Joins results from different databases." },
+  { kind: "transform-script", label: "Transform: JavaScript", hint: "A JavaScript function over earlier results, in the sandbox" },
+  { kind: "set-vars", label: "Set variables", hint: "Takes values out of a result (a list of ids, a date) for later queries" },
+  { kind: "export", label: "Export", hint: "Saves a result as CSV, JSON Lines or Parquet with DuckDB" },
   { kind: "assert", label: "Assert", hint: "Fails the workflow when a check isn't met" },
 ];
 
@@ -35,23 +35,18 @@ export async function deleteChain(id: string): Promise<() => Promise<void>> {
   };
 }
 
-export async function chainsFor(collectionId: string): Promise<Chain[]> {
-  const rows = await chainRowsFor(collectionId);
-  return rows.sort((a, b) => a.name.localeCompare(b.name));
-}
-
 export async function allChains(): Promise<Chain[]> {
   const rows = await listChainRows();
   return rows.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function createChain(collectionId: string, name = "New workflow"): Promise<Chain> {
-  const c: Chain = { id: uid("ch_"), collectionId, name, steps: [], vars: [], updatedAt: Date.now() };
+export async function createChain(name = "New workflow"): Promise<Chain> {
+  const c: Chain = { id: uid("ch_"), name, steps: [], vars: [], updatedAt: Date.now() };
   await putChainRow(c);
   return c;
 }
 
-/** A copy with a fresh id and "name copy", in the same collection. */
+/** A copy with a fresh id and "name copy". */
 export async function duplicateChain(c: Chain): Promise<Chain> {
   const names = (await listChainRows()).map((x) => x.name);
   const copy: Chain = { ...structuredClone(c), id: uid("ch_"), name: uniqueName(`${c.name} copy`, names), updatedAt: Date.now() };
@@ -60,30 +55,14 @@ export async function duplicateChain(c: Chain): Promise<Chain> {
   return copy;
 }
 
-/** Moves a workflow to another home collection. Steps that use named queries keep their ids. */
-export async function moveChain(c: Chain, collectionId: string): Promise<Chain> {
-  return saveChain({ ...c, collectionId });
-}
-
-export const WORKFLOWS_COLLECTION = "Workflows";
-
-/**
- * The collection "New workflow" picks when the user doesn't choose: the only collection, or a
- * "Workflows" collection (created on demand) when there are none or several.
- */
-export async function defaultWorkflowCollection(cols?: Collection[]): Promise<Collection> {
-  const list = cols ?? (await listCollections());
-  if (list.length === 1) return list[0]!;
-  return list.find((c) => c.name === WORKFLOWS_COLLECTION) ?? (await createCollection(WORKFLOWS_COLLECTION));
-}
-
-/** Collection ids a workflow's query steps use: the home collection for its named queries, plus any query found elsewhere. */
+/** Collection ids of the named queries a workflow's query steps use, in step order. */
 export function collectionsUsed(c: Chain, queries: Pick<NamedQuery, "id" | "collectionId">[]): string[] {
   const byId = new Map(queries.map((q) => [q.id, q.collectionId]));
   const out = new Set<string>();
   for (const s of c.steps) {
     if (s.kind !== "query" || !s.queryId) continue;
-    out.add(byId.get(s.queryId) ?? c.collectionId);
+    const col = byId.get(s.queryId);
+    if (col) out.add(col);
   }
   return [...out];
 }
@@ -121,7 +100,7 @@ export function newStep(kind: ChainStepKind, steps: ChainStep[], defaultConnecti
         : "return [];";
       break;
     case "set-vars":
-      s.assignments = prev ? { ids: `column("${prev}", "id")` } : { value: "1" };
+      s.assignments = { ids: `column("${prev ?? "step"}", "id")` };
       break;
     case "export":
       s.format = "csv";

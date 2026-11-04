@@ -4,8 +4,9 @@
 import { buildSrcUrl, readSrcParam } from "../../preview/src-param";
 
 export type Route =
-  /** #home/new opens Home with the new-connection picker showing (toolbar popup). */
-  | { name: "home"; newConnection?: boolean }
+  /** #new (engine picker), #new/<engine> (that engine's form) or #edit/<id>. The toolbar popup
+   *  opens these when a form needs a file chooser, which would close the popup. */
+  | { name: "connection-editor"; connectionId?: string; driver?: string }
   | { name: "connection"; connectionId: string }
   | { name: "file"; src?: string; fileHandleId?: string }
   | { name: "settings"; section?: string }
@@ -18,7 +19,9 @@ export function parseRoute(hash: string, search = ""): Route {
   const src = sp?.src;
   const h = (sp ? sp.hash : hash).replace(/^#/, "");
 
-  if (h === "home/new") return { name: "home", newConnection: true };
+  if (h === "new") return { name: "connection-editor" };
+  if (h.startsWith("new/") && h.length > 4) return { name: "connection-editor", driver: decodeURIComponent(h.slice(4)) };
+  if (h.startsWith("edit/") && h.length > 5) return { name: "connection-editor", connectionId: decodeURIComponent(h.slice(5)) };
   if (h.startsWith("c_") && h.length > 2) return { name: "connection", connectionId: decodeURIComponent(h.slice(2)) };
   if (h === "file" || h.startsWith("file/")) {
     const id = h.slice(5);
@@ -36,13 +39,15 @@ export function parseRoute(hash: string, search = ""): Route {
     if (Number.isInteger(id) && id >= 0) return { name: "download-prompt", downloadId: id };
   }
   if (h === "" && src) return { name: "file", src };
-  return { name: "home" };
+  // There is no Home page; the toolbar popup lists connections. Anything else lands on Settings.
+  return { name: "settings" };
 }
 
 export function routeHash(route: Route): string {
   switch (route.name) {
-    case "home":
-      return route.newConnection ? "#home/new" : "#home";
+    case "connection-editor":
+      if (route.connectionId) return `#edit/${encodeURIComponent(route.connectionId)}`;
+      return route.driver ? `#new/${encodeURIComponent(route.driver)}` : "#new";
     case "connection":
       return `#c_${encodeURIComponent(route.connectionId)}`;
     case "file":
@@ -95,4 +100,14 @@ export function navigate(route: Route, opts: { newTab?: boolean } = {}): void {
     return;
   }
   location.hash = routeHash(route);
+}
+
+/** Closes this tab (pages opened for one job: a connection that's gone, the connection editor). */
+export function closeThisTab(): void {
+  const c = typeof chrome !== "undefined" ? chrome : undefined;
+  if (c?.tabs?.getCurrent) {
+    void c.tabs.getCurrent().then((t) => (t?.id !== undefined ? c.tabs.remove(t.id) : window.close()));
+    return;
+  }
+  window.close();
 }

@@ -1,0 +1,7 @@
+{
+  "format": "dbui-workflow",
+  "version": 1,
+  "name": "Unknown alias",
+  "connections": {},
+  "steps": [{ "name": "a", "kind": "query", "connection": "nope", "sql": "SELECT 1" }]
+}

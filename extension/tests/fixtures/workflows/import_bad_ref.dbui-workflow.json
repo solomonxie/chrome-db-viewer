@@ -1,0 +1,10 @@
+{
+  "format": "dbui-workflow",
+  "version": 1,
+  "name": "Broken",
+  "connections": { "app": { "driver": "postgres" } },
+  "steps": [
+    { "name": "a", "kind": "query", "connection": "app", "sql": "SELECT 1" },
+    { "name": "b", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref(\"a\") }} JOIN {{ ref(\"missing\") }} USING (id)" }
+  ]
+}

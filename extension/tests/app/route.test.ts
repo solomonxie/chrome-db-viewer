@@ -1,17 +1,22 @@
 import { expect, test } from "vitest";
 import { parseRoute, routeHash, type Route } from "../../src/app/lib/route";
 
-test("empty hash is home", () => {
-  expect(parseRoute("")).toEqual({ name: "home" });
-  expect(parseRoute("#home")).toEqual({ name: "home" });
-  expect(parseRoute("#home/new")).toEqual({ name: "home", newConnection: true });
-  expect(routeHash({ name: "home", newConnection: true })).toBe("#home/new");
-  expect(parseRoute("#nonsense")).toEqual({ name: "home" });
+test("there is no Home: an empty or unknown hash lands on Settings", () => {
+  expect(parseRoute("")).toEqual({ name: "settings" });
+  expect(parseRoute("#home")).toEqual({ name: "settings" });
+  expect(parseRoute("#nonsense")).toEqual({ name: "settings" });
+});
+
+test("#new and #edit/<id> open the connection editor", () => {
+  expect(parseRoute("#new")).toEqual({ name: "connection-editor" });
+  expect(parseRoute("#edit/a%2Fb")).toEqual({ name: "connection-editor", connectionId: "a/b" });
+  expect(routeHash({ name: "connection-editor", connectionId: "a/b" })).toBe("#edit/a%2Fb");
+  expect(parseRoute("#edit/")).toEqual({ name: "settings" });
 });
 
 test("connection hash", () => {
   expect(parseRoute("#c_8f2")).toEqual({ name: "connection", connectionId: "8f2" });
-  expect(parseRoute("#c_")).toEqual({ name: "home" });
+  expect(parseRoute("#c_")).toEqual({ name: "settings" });
 });
 
 test("file route reads ?src= and a handle id", () => {
@@ -32,7 +37,7 @@ test("an unencoded redirect URL keeps its '&' params and #fragment", () => {
 
 test("download prompt route", () => {
   expect(parseRoute("#download-prompt?id=42")).toEqual({ name: "download-prompt", downloadId: 42 });
-  expect(parseRoute("#download-prompt?id=x")).toEqual({ name: "home" });
+  expect(parseRoute("#download-prompt?id=x")).toEqual({ name: "settings" });
 });
 
 test("settings with an optional section", () => {
@@ -42,7 +47,7 @@ test("settings with an optional section", () => {
 
 test("routeHash round-trips", () => {
   const routes: Route[] = [
-    { name: "home" },
+    { name: "connection-editor" },
     { name: "connection", connectionId: "a b/c" },
     { name: "file", fileHandleId: "f_1" },
     { name: "settings", section: "preview" },

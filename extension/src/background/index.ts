@@ -39,9 +39,19 @@ chrome.webNavigation.onBeforeNavigate.addListener(({ url, timeStamp }) => {
   recentNavigations.set(url, timeStamp);
 });
 
+// Whether onCreated prompted, per download id, so onDeterminingFilename can try again with the
+// suggested file name when it didn't (JavaScript exports: blob: URL, no name in onCreated).
+const createdPrompts = new Map<number, Promise<boolean>>();
+const promptOnce = (item: chrome.downloads.DownloadItem) =>
+  handleDownloadCreated(item).catch((e) => {
+    console.error("dbui: download handler failed", e);
+    return false;
+  });
+
 chrome.downloads.onCreated.addListener((item) => {
   if (recentNavigations.has(item.url)) return;
-  void handleDownloadCreated(item).catch((e) => console.error("dbui: download handler failed", e));
+  createdPrompts.set(item.id, promptOnce(item));
+  setTimeout(() => createdPrompts.delete(item.id), 60_000);
 });
 
 // Here rather than onCreated: this is where Chrome knows the file name from Content-Disposition,
@@ -55,6 +65,13 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   const local = /^file:/i.test(item.finalUrl || item.url);
   if (!media && !local && !navigated) {
     suggest();
+    const created = createdPrompts.get(item.id);
+    if (created && item.filename) {
+      createdPrompts.delete(item.id);
+      void created.then((prompted) => {
+        if (!prompted) void promptOnce(item);
+      });
+    }
     return;
   }
   void (async () => {

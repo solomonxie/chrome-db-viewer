@@ -93,11 +93,17 @@ function isRefetchable(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
-/** Called from chrome.downloads.onCreated in the background worker. */
-export async function handleDownloadCreated(item: chrome.downloads.DownloadItem): Promise<void> {
+/**
+ * Called from chrome.downloads.onCreated in the background worker, and again from
+ * onDeterminingFilename when onCreated didn't prompt: a page's JavaScript export (file-saver's
+ * saveAs, <a download> on a blob: URL) has no file name yet in onCreated, only a blob: URL and
+ * often a text/plain type, so only the suggested name ("orders-chart.csv") shows it's data.
+ * Returns whether it prompted.
+ */
+export async function handleDownloadCreated(item: chrome.downloads.DownloadItem): Promise<boolean> {
   const settings = await loadPreviewSettings();
   const decision = decideDownloadPrompt(item, settings, chrome.runtime?.id);
-  if (!decision.prompt) return;
+  if (!decision.prompt) return false;
   const url = item.finalUrl || item.url;
   const pending: PendingDownloadPrompt = {
     downloadId: item.id,
@@ -111,6 +117,7 @@ export async function handleDownloadCreated(item: chrome.downloads.DownloadItem)
   };
   await chrome.storage.session.set({ [DOWNLOAD_PROMPT_PREFIX + item.id]: pending });
   await chrome.tabs.create({ url: chrome.runtime.getURL(`app.html#download-prompt?id=${item.id}`), active: true });
+  return true;
 }
 
 export async function getPendingDownloadPrompt(downloadId: number): Promise<PendingDownloadPrompt | null> {

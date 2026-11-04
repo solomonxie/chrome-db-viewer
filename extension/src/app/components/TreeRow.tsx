@@ -1,4 +1,4 @@
-// Presentational bits shared by the left-pane trees (Items, Collections, Workflows):
+// Presentational bits shared by the left-pane trees (Schema, Collections, Workflows):
 // a hover-revealed chevron, kind icons, the folding pane sections and the inline rename field.
 
 import { useRef, useState, type ReactNode } from "react";
@@ -27,7 +27,7 @@ export interface PaneTab<K extends string> {
 }
 
 /**
- * Left-pane sections stacked as folding headers (Items, Collections, …). One is open at a time:
+ * Left-pane sections stacked as folding headers (Schema, Collections, …). One is open at a time:
  * its header is a full-width accent bar and its body fills the space below it; the others stay
  * folded underneath. No chevrons at this level: the bar alone marks the open one. Clicking the open one folds it.
  */

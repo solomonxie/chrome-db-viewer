@@ -6,12 +6,12 @@ import { loadChain } from "./helpers";
 test("#workflow/<id> routes to the workflow view and is the link the UI builds", () => {
   expect(parseRoute("#workflow/ch_a%2Fb")).toEqual({ name: "chain", chainId: "ch_a/b" });
   expect(routeHash({ name: "chain", chainId: "ch_a/b" })).toBe("#workflow/ch_a%2Fb");
-  expect(parseRoute("#workflow/")).toEqual({ name: "home" });
+  expect(parseRoute("#workflow/")).toEqual({ name: "settings" });
 });
 
 test("#chain/<id> still opens the same workflow", () => {
   expect(parseRoute("#chain/ch_a%2Fb")).toEqual({ name: "chain", chainId: "ch_a/b" });
-  expect(parseRoute("#chain/")).toEqual({ name: "home" });
+  expect(parseRoute("#chain/")).toEqual({ name: "settings" });
 });
 
 test("new steps get unique names and point at the previous step", () => {

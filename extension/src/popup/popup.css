@@ -2,10 +2,35 @@
 
 html, body, #root { height: auto; }
 body.popup { width: 380px; overflow: hidden; }
-.pop { display: flex; flex-direction: column; max-height: 560px; }
-.pop-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
-.pop-search .ico { width: 15px; height: 15px; color: var(--faint); flex: none; }
-.pop-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font-size: 13.5px; color: var(--fg-strong); }
-.pop-search input::placeholder { color: var(--faint); }
+.pop { display: flex; flex-direction: column; max-height: 580px; }
+/* New connection / Edit inside the popup: the sheet scrolls; its buttons stay at the bottom. */
+body.popup:has(.pop-sheet) { width: 460px; }
+.pop-sheet { height: 580px; }
+.inline-sheet { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; overflow: auto; padding: 12px 14px 0; }
+.inline-sheet h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.inline-sheet > .acts { position: sticky; bottom: 0; margin: auto -14px 0; padding: 8px 14px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; background: var(--bg); border-top: 1px solid var(--line-soft); }
+.inline-sheet > .acts .spacer { flex: 1; }
+.inline-sheet .form { grid-template-columns: 96px minmax(0, 1fr); gap: 8px 10px; }
+.inline-sheet .picker-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.inline-sheet .guide-cols { grid-template-columns: 1fr; }
 .pop-list { overflow: auto; padding: 4px; flex: 1; min-height: 0; }
-.pop-foot { display: flex; gap: 4px; padding: 6px; border-top: 1px solid var(--line-soft); }
+.pop-foot { display: flex; gap: 4px; padding: 6px; border-top: 1px solid var(--line-soft); align-items: center; }
+.pop-foot .spacer { flex: 1; }
+.pop-more { flex: none; min-height: 26px; width: 26px; opacity: 0; }
+.cpick-opt:hover .pop-more, .cpick-opt.on .pop-more, .pop-more.on, .pop-more:focus-visible { opacity: 1; }
+.pop-note { padding: 6px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); }
+
+/* A row's ⋯ menu, shown under the row: a short vertical list, like a native menu. */
+.pop-menu { display: flex; flex-direction: column; margin: 2px 8px 6px 46px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--elev); box-shadow: var(--shadow); }
+.pop-menu hr { border: 0; border-top: 1px solid var(--line-soft); margin: 4px 2px; }
+.pop-mi { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 28px; padding: 3px 8px; border: 0; border-radius: 5px; background: none; color: var(--fg); font-size: 13px; text-align: left; cursor: pointer; }
+.pop-mi:hover, .pop-mi:focus-visible { background: var(--hover-strong); outline: none; }
+.pop-mi .ico { width: 15px; height: 15px; color: var(--muted); flex: none; }
+.pop-mi .ico.sub { margin-left: auto; }
+.pop-mi.danger, .pop-mi.danger .ico { color: var(--danger); }
+.pop-mi.fmt { flex-direction: column; align-items: stretch; gap: 1px; padding: 5px 8px; }
+.pop-mi.fmt code { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-menu-q { margin: 4px 6px 8px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.pop-menu-q b { color: var(--fg-strong); font-weight: 600; }
+.pop-menu-acts { display: flex; gap: 6px; justify-content: flex-end; align-items: center; padding: 2px; }
+.pop-menu-acts .input { flex: 1; min-width: 0; min-height: 26px; padding: 2px 8px; font-size: 12.5px; }

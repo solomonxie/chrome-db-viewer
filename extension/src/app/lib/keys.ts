@@ -4,8 +4,12 @@ import { useEffect, useRef } from "react";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-/** Browser shortcuts dbui takes inside app.html (DESIGN.md §3.6). */
-export const RESERVED = ["mod+s", "mod+k", "mod+r", "mod+f", "mod+p"];
+/**
+ * Browser shortcuts dbui takes everywhere inside app.html (DESIGN.md §3.6). ⌘F isn't one: Chrome's
+ * find works on every page, and only views with their own filter (a table, a file sheet) take ⌘F,
+ * through useKeys, which stops the browser's default when it handles a key.
+ */
+export const RESERVED = ["mod+s", "mod+k", "mod+r", "mod+p"];
 
 export function comboOf(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">, mac = isMac): string {
   const parts: string[] = [];
@@ -71,7 +75,7 @@ export function useKeys(map: KeyMap, opts: KeyOptions = {}): void {
   }, []);
 }
 
-/** Swallows Chrome's own ⌘S/⌘K/⌘R/⌘F/⌘P everywhere in the app tab. */
+/** Swallows Chrome's own ⌘S/⌘K/⌘R/⌘P everywhere in the app tab. */
 export function installReservedKeyGuard(): () => void {
   const onKey = (e: KeyboardEvent) => {
     if (RESERVED.includes(comboOf(e))) e.preventDefault();

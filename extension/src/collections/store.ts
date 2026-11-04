@@ -294,7 +294,7 @@ export async function createCollection(name: string, partial: Partial<Collection
 export type Restore = () => Promise<void>;
 
 export async function deleteCollection(id: string): Promise<Restore> {
-  // Workflows whose home this was are kept; their view offers to pick another collection.
+  // Workflows aren't part of a collection; a step using one of its named queries then says the query is gone.
   const [folders, queries, row] = await Promise.all([db.byCollection("folders", id), db.byCollection("namedQueries", id), db.get("collections", id)]);
   const saved = row ? await fillCollectionSecrets(row) : undefined;
   const savedQueries = await Promise.all(queries.map(fillQuerySecrets));
@@ -408,8 +408,8 @@ export async function moveFolder(id: string, parentId: string | undefined): Prom
 }
 
 // ---------------------------------------------------------------------------------------------
-// Workflow rows (the "chains" store). A workflow keeps a home collectionId for its variables and
-// named queries; these go through the same IndexedDB-or-memory access as everything above.
+// Workflow rows (the "chains" store). Workflows don't belong to a collection; these go through
+// the same IndexedDB-or-memory access as everything above.
 // ---------------------------------------------------------------------------------------------
 
 export async function listChainRows(): Promise<Chain[]> {
@@ -428,9 +428,6 @@ export async function deleteChainRow(id: string): Promise<void> {
   await db.del("chains", id);
 }
 
-export async function chainRowsFor(collectionId: string): Promise<Chain[]> {
-  return db.byCollection("chains", collectionId);
-}
 
 /** Every named query in every collection (for workflow rows that show which collections they use). */
 export async function listAllQueries(): Promise<NamedQuery[]> {
@@ -448,11 +445,12 @@ export interface CollectionExport {
   collection: Collection;
   folders: Folder[];
   queries: NamedQuery[];
-  chains: Chain[];
+  /** Older exports carried their workflows; import keeps them as standalone workflows. */
+  chains?: Chain[];
 }
 
 /** One JSON-ready object for a collection, with every secret value left out. */
-export function buildExport(b: CollectionBundle & { chains?: Chain[] }, now = Date.now()): CollectionExport {
+export function buildExport(b: CollectionBundle, now = Date.now()): CollectionExport {
   return {
     format: "dbui-collection",
     version: 1,
@@ -460,15 +458,13 @@ export function buildExport(b: CollectionBundle & { chains?: Chain[] }, now = Da
     collection: stripCollectionSecrets(b.collection),
     folders: b.folders,
     queries: b.queries.map((q) => stripQuerySecrets(q, b.collection.vars)),
-    chains: b.chains ?? [],
   };
 }
 
 export async function exportCollection(collectionId: string): Promise<string> {
   const b = await loadBundle(collectionId);
   if (!b) throw new Error("No such collection");
-  const chains = await db.byCollection("chains", collectionId);
-  return JSON.stringify(buildExport({ ...b, chains }), null, 2);
+  return JSON.stringify(buildExport(b), null, 2);
 }
 
 /**
@@ -504,10 +500,9 @@ export function prepareImport(json: string, newId: (prefix: string) => string = 
     queries: (data.queries ?? []).map((q) =>
       stripQuerySecrets({ ...q, id: queryIds.get(q.id)!, collectionId: cid, folderId: q.folderId ? folderIds.get(q.folderId) : undefined, vars: q.vars ?? [] }, collection.vars),
     ),
-    chains: (data.chains ?? []).map((ch) => ({
+    chains: (data.chains ?? []).map(({ collectionId: _drop, ...ch }) => ({
       ...ch,
       id: newId("ch_"),
-      collectionId: cid,
       steps: ch.steps.map((s) => ({ ...s, queryId: s.queryId ? (queryIds.get(s.queryId) ?? s.queryId) : undefined })),
     })),
   };
@@ -518,6 +513,6 @@ export async function importCollection(json: string): Promise<Collection> {
   await db.put("collections", data.collection);
   for (const f of data.folders) await db.put("folders", f);
   for (const q of data.queries) await db.put("namedQueries", q);
-  for (const ch of data.chains) await db.put("chains", ch);
+  for (const ch of data.chains ?? []) await db.put("chains", ch);
   return data.collection;
 }

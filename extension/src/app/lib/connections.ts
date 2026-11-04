@@ -5,7 +5,7 @@ import type { ConnectionConfig, Driver } from "@core/types";
 import { createDriver } from "@core/registry";
 import { createDemoDriver, DEMO_CONNECTION, DEMO_CONNECTION_ID, isDemo } from "../demo/demoDriver";
 import * as db from "../store/db";
-import { readSecret, type SecretMode } from "../store/secrets";
+import { copySecret, readSecret, type SecretMode } from "../store/secrets";
 import { openConnectionTab } from "./route";
 
 export type { SavedConnection } from "../store/db";
@@ -41,7 +41,7 @@ export async function openConnection(c: db.SavedConnection): Promise<void> {
   if (!isDemo(c)) await saveConnection({ ...c, lastUsedAt: Date.now() }).catch(() => {});
 }
 
-/** Sort order shared by Home and the pickers: ungrouped first, named groups A-Z, Demo last. */
+/** Sort order shared by the popup and the pickers: ungrouped first, named groups A-Z, Demo last. */
 export function compareGroups(a: string, b: string): number {
   if (a === b) return 0;
   if (a === "") return -1;
@@ -53,6 +53,61 @@ export function compareGroups(a: string, b: string): number {
 
 export async function deleteConnection(id: string): Promise<void> {
   await db.del("connections", id);
+}
+
+/**
+ * A copy of `c` saved under a new id, named "<name> copy". Its secret refs (password, token,
+ * key, refresh token, SSH key: all `c_<id>` or `c_<id>_<what>`) are renamed to the new id and
+ * their values copied, so the copy connects without asking again. Secrets typed only for one
+ * session live in the tab they were typed in, so from another page those can't be copied;
+ * `missingSecret` says the copy will ask for its password.
+ */
+export async function duplicateConnection(c: db.SavedConnection): Promise<{ copy: db.SavedConnection; missingSecret: boolean }> {
+  const id = db.uid();
+  const oldRef = `c_${c.id}`;
+  const refs = new Map<string, string>();
+  const rename = (v: unknown): unknown => {
+    if (typeof v === "string") {
+      if (v !== oldRef && !v.startsWith(oldRef + "_")) return v;
+      const to = `c_${id}` + v.slice(oldRef.length);
+      refs.set(v, to);
+      return to;
+    }
+    if (Array.isArray(v)) return v.map(rename);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rename(x)]));
+    return v;
+  };
+  const copy: db.SavedConnection = {
+    ...c,
+    id,
+    name: `${c.name} copy`,
+    options: rename(c.options) as db.SavedConnection["options"],
+    secretRef: c.secretRef ? (rename(c.secretRef) as string) : undefined,
+    createdAt: Date.now(),
+    lastUsedAt: undefined,
+    favorites: undefined,
+  };
+  let missingSecret = false;
+  for (const [from, to] of refs) {
+    const ok = await copySecret(from, to);
+    if (!ok && from === c.secretRef && needsSecret(c)) missingSecret = true;
+  }
+  await saveConnection(copy);
+  return { copy, missingSecret };
+}
+
+/** The connection's settings as a .dbui.json download: no secrets, no per-browser state. */
+export function exportConnection(c: db.SavedConnection): void {
+  const rest: Partial<db.SavedConnection> = { ...c };
+  delete rest.secretRef;
+  delete rest.lastUsedAt;
+  delete rest.favorites;
+  const blob = new Blob([JSON.stringify({ dbui: "connection", version: 1, connection: rest }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${c.name.replace(/[^\w.-]+/g, "_") || "connection"}.dbui.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 export function secretMode(cfg: ConnectionConfig): SecretMode {

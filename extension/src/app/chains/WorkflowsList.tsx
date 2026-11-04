@@ -1,6 +1,6 @@
-// Left pane "Workflows" tab (DESIGN.md §3.15): a flat list of every workflow across collections,
-// with a filter, New workflow (pick its home collection), rename, duplicate and delete. Each row
-// shows the step count, the last run, and which collection(s) its query steps use as small tags.
+// Left pane "Workflows" tab (DESIGN.md §3.15): a flat list of every workflow, with a filter,
+// New workflow, rename, duplicate and delete. Workflows don't belong to collections; each row
+// shows the step count, the last run, and which collection(s) its named queries come from.
 // The code calls workflows "chains" (src/chains/, the Chain type, the "chains" store).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,7 +11,9 @@ import { Icon } from "../components/Icon";
 import { InlineName } from "../components/TreeRow";
 import { navigate } from "../lib/route";
 import { fmtAgo } from "../lib/format";
-import { allChains, collectionsUsed, createChain, defaultWorkflowCollection, deleteChain, duplicateChain, saveChain, WORKFLOWS_COLLECTION } from "./chainStore";
+import { allChains, collectionsUsed, createChain, deleteChain, duplicateChain, saveChain } from "./chainStore";
+import { downloadWorkflow, ImportWorkflowDialog, pickWorkflowFile } from "./WorkflowImport";
+import type { WorkflowFile } from "../../chains/workflowFile";
 
 const openWorkflow = (c: Chain) => navigate({ name: "chain", chainId: c.id }, { newTab: true });
 
@@ -22,6 +24,7 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
   const [q, setQ] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState<WorkflowFile | null>(null);
   const [version, setVersion] = useState(0);
   const open = props.onOpen ?? openWorkflow;
 
@@ -38,7 +41,7 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
 
   const colName = useMemo(() => new Map(collections.map((c) => [c.id, c.name])), [collections]);
   const needle = q.trim().toLowerCase();
-  const hits = (rows ?? []).filter((c) => !needle || c.name.toLowerCase().includes(needle) || (colName.get(c.collectionId) ?? "").toLowerCase().includes(needle));
+  const hits = (rows ?? []).filter((c) => !needle || c.name.toLowerCase().includes(needle));
 
   const [renaming, setRenaming] = useState<string | null>(null);
   const rename = (c: Chain, name: string | null) => {
@@ -57,8 +60,14 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
     { label: "Open", onClick: () => open(c) },
     { label: "Rename", onClick: () => setRenaming(c.id) },
     { label: "Duplicate", onClick: () => void duplicateChain(c).then((d) => props.toast(`Created "${d.name}"`)) },
+    { label: "Export file…", onClick: () => void downloadWorkflow(c).catch((e) => props.toast((e as Error).message)) },
     { separator: true, label: "" },
     { label: "Delete workflow", onClick: () => void remove(c) },
+  ];
+  const importFile = () => pickWorkflowFile(setImporting, (m) => props.toast(m));
+  const addMenu: MenuItem[] = [
+    { label: "New workflow", onClick: () => setCreating(true) },
+    { label: "Import from file…", hint: ".dbui-workflow.json", onClick: importFile },
   ];
   const showMenu = (e: React.MouseEvent, items: MenuItem[]) => {
     e.preventDefault();
@@ -71,7 +80,16 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
       <div className="psearch">
         <Icon name="search" className="ico psearch-ico" />
         <input placeholder="Filter workflows" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} aria-label="Filter workflows" />
-        <button className="btn icon ghost" title="New workflow" aria-label="New workflow" onClick={() => setCreating(true)}>
+        <button
+          className="btn icon ghost"
+          title="New workflow, or import one from a file"
+          aria-label="Add workflow"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.left, y: r.bottom + 4, items: addMenu });
+          }}
+        >
           <Icon name="plus" />
         </button>
       </div>
@@ -81,13 +99,15 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
             <p>No workflows yet. A workflow runs several steps in order, each using earlier results, like a small dbt project.</p>
             <button className="btn primary" onClick={() => setCreating(true)}>
               New workflow
+            </button>{" "}
+            <button className="btn" onClick={importFile}>
+              Import from file…
             </button>
           </div>
         )}
         {rows !== null && rows.length > 0 && hits.length === 0 && <div className="empty">No workflow matches "{q}".</div>}
         {hits.map((c) => {
-          const used = collectionsUsed(c, queries);
-          const tags = used.length ? used : [c.collectionId];
+          const tags = collectionsUsed(c, queries);
           if (renaming === c.id) {
             return (
               <div key={c.id} role="listitem" className="wf-row">
@@ -117,7 +137,7 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
                 </small>
                 <span className="wf-tags">
                   {tags.map((id) => (
-                    <span key={id} className={"wf-tag" + (id === c.collectionId ? " home" : "")} title={id === c.collectionId ? "Home collection: variables and named queries" : "Named queries from this collection"}>
+                    <span key={id} className="wf-tag" title="Uses named queries from this collection">
                       {colName.get(id) ?? "missing collection"}
                     </span>
                   ))}
@@ -131,9 +151,20 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
         })}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {importing && (
+        <ImportWorkflowDialog
+          file={importing}
+          onClose={() => setImporting(null)}
+          onImported={(c, replaced) => {
+            setImporting(null);
+            props.toast(replaced ? `Replaced "${c.name}"` : `Imported "${c.name}"`);
+            void reload();
+            open(c);
+          }}
+        />
+      )}
       {creating && (
         <NewWorkflowDialog
-          collections={collections}
           onClose={() => setCreating(false)}
           onCreated={(c) => {
             setCreating(false);
@@ -147,21 +178,15 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
 
 const RUN_LABEL = { done: "passed", failed: "failed", cancelled: "stopped", blocked: "blocked" } as const;
 
-const NEW_DEFAULT = "__default__";
-
-/** Name and home collection for a new workflow; the default is the only collection, or a "Workflows" one. */
-export function NewWorkflowDialog(props: { collections: Collection[]; onClose: () => void; onCreated: (c: Chain) => void }) {
+/** Name for a new workflow. */
+export function NewWorkflowDialog(props: { onClose: () => void; onCreated: (c: Chain) => void }) {
   const [name, setName] = useState("New workflow");
-  const only = props.collections.length === 1 ? props.collections[0] : undefined;
-  const existingDefault = props.collections.find((c) => c.name === WORKFLOWS_COLLECTION);
-  const [collectionId, setCollectionId] = useState<string>(only?.id ?? existingDefault?.id ?? NEW_DEFAULT);
   const [error, setError] = useState<string | null>(null);
 
   const create = async () => {
     setError(null);
     try {
-      const home = collectionId === NEW_DEFAULT ? await defaultWorkflowCollection(props.collections) : { id: collectionId };
-      props.onCreated(await createChain(home.id, name.trim() || "New workflow"));
+      props.onCreated(await createChain(name.trim() || "New workflow"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -188,18 +213,7 @@ export function NewWorkflowDialog(props: { collections: Collection[]; onClose: (
           Name
           <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" onKeyDown={(e) => e.key === "Enter" && name.trim() && void create()} />
         </label>
-        <label>
-          Collection
-          <select className="input" value={collectionId} onChange={(e) => setCollectionId(e.target.value)} aria-label="Collection">
-            {!only && !existingDefault && <option value={NEW_DEFAULT}>A new "{WORKFLOWS_COLLECTION}" collection</option>}
-            {props.collections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <small className="faint">Its variables, environments and named queries are what this workflow's steps can use.</small>
-        </label>
+        <small className="faint">Query steps can use named queries from any collection, or their own SQL.</small>
       </div>
     </Modal>
   );

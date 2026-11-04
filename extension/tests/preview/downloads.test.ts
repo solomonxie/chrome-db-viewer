@@ -183,3 +183,18 @@ test("a data file a tab navigated to opens straight in the viewer: signed URLs, 
   expect(navigatedDataToOpen({ ...redirected, byExtensionId: "self" }, settings, "self")).toBeNull();
   expect(navigatedDataToOpen(redirected, { ...settings, enabled: false }, "self")).toBeNull();
 });
+
+test("a page's JavaScript CSV export (blob: URL, text/plain) is matched once its suggested file name is known", async () => {
+  // What onCreated sees for file-saver's saveAs(blob, "orders-chart.csv"): no name yet.
+  const created = item({ id: 9, url: "blob:https://app.example.com/5f1c", finalUrl: "blob:https://app.example.com/5f1c", mime: "text/plain", filename: "" });
+  expect(decideDownloadPrompt(created, on)).toEqual({ prompt: false, reason: "no-match" });
+  // onDeterminingFilename: the suggested name is there.
+  const named = { ...created, filename: "orders-chart.csv" };
+  expect(decideDownloadPrompt(named, on)).toEqual({ prompt: true, kind: "data", filename: "orders-chart.csv" });
+
+  const { c, session } = stubChrome({ settings: { enabled: true } });
+  expect(await handleDownloadCreated(created)).toBe(false);
+  expect(await handleDownloadCreated(named)).toBe(true);
+  expect(session["downloadPrompt:9"]).toMatchObject({ filename: "orders-chart.csv", refetchable: false, kind: "data" });
+  expect(c.tabs.create).toHaveBeenCalledWith({ url: EXT + "app.html#download-prompt?id=9", active: true });
+});

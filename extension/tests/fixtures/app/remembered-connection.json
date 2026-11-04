@@ -1,0 +1,21 @@
+{
+  "connection": {
+    "id": "bq_prod",
+    "name": "BQ prod",
+    "driver": "bigquery",
+    "env": "production",
+    "readOnly": true,
+    "createdAt": 1760000000000,
+    "lastUsedAt": 1762000000000,
+    "secretRef": "c_bq_prod",
+    "options": {
+      "projectId": "acme-analytics",
+      "secretMode": "browser",
+      "auth": { "method": "web-auth", "options": { "refreshTokenRef": "c_bq_prod_refresh", "interactive": true } }
+    }
+  },
+  "storage": {
+    "secret:c_bq_prod": "ya29.fixture-access-token",
+    "secret:c_bq_prod_refresh": "1//fixture-refresh-token"
+  }
+}

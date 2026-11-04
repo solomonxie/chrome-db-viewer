@@ -1,4 +1,4 @@
-// Home banner offering to restore the runner's automatic backup on a fresh install
+// Settings banner offering to restore the runner's automatic backup on a fresh install
 // (DESIGN.md §3.16). Shown only when this profile has no connections, collections or history
 // and a backup exists. Never restores without the user's click.
 

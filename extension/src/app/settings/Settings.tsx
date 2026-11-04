@@ -11,7 +11,8 @@ import {
 } from "../../preview/index";
 import { navigate } from "../lib/route";
 import { useToast } from "../components/ui";
-import { RunnerCard, useRunnerStatus } from "../home/RunnerCard";
+import { RunnerCard, useRunnerStatus } from "./RunnerCard";
+import { RestoreBanner, useRestoreOffer } from "./RestoreBanner";
 import { Icon } from "../components/Icon";
 import { Appearance } from "./Appearance";
 import { BackupSection } from "./BackupSection";
@@ -35,6 +36,8 @@ export function Settings({ section }: { section?: string }) {
   const [err, setErr] = useState<string | null>(null);
   const toast = useToast();
   const runner = useRunnerStatus();
+  // On a fresh install with a runner backup, offer to restore it (§3.16).
+  const restore = useRestoreOffer(true);
   const inExtension = typeof chrome !== "undefined" && !!chrome.storage?.local;
 
   useEffect(() => {
@@ -126,13 +129,8 @@ export function Settings({ section }: { section?: string }) {
   return (
     <div className="settings">
       <div className="settings-inner">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button className="btn ghost" onClick={() => navigate({ name: "home" })}>
-            <Icon name="back" className="ico" />
-            Home
-          </button>
-          <h1>Settings</h1>
-        </div>
+        <h1>Settings</h1>
+        {restore.offer && <RestoreBanner offer={restore.offer} onDone={() => restore.dismiss()} />}
 
         <Appearance />
 

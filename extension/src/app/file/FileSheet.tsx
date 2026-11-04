@@ -7,11 +7,12 @@ import type { ConnectionConfig, Driver } from "@core/types";
 import { createDriver } from "@core/registry";
 import { createDemoDriver } from "../demo/demoDriver";
 import { DataGrid, type GridCursor } from "../components/DataGrid";
-import { CommandPalette, useToast, type PaletteCommand } from "../components/ui";
+import { CommandPalette, ContextMenu, useToast, type MenuItem, type PaletteCommand } from "../components/ui";
+import { canSave, formatOf, SAVE_FORMATS, saveSheet, type SaveFormat } from "./saveFile";
 import { ensureReadPermission, pickFile, recentFiles, rememberFile, rememberUrl } from "../lib/files";
 import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { MOD, useKeys } from "../lib/keys";
-import { navigate } from "../lib/route";
+import { closeThisTab, navigate } from "../lib/route";
 import * as db from "../store/db";
 import { useResult } from "../conn/useResult";
 import { cycleSort, equalsCondition, filteredSheet, querySheet, sheetSql, sourceSheet, summarySheet, type Sheet } from "./sheets";
@@ -129,8 +130,8 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
             <button className="btn" onClick={() => void openDemo(phase.name)}>
               Try with demo data
             </button>
-            <button className="btn" onClick={() => navigate({ name: "home" })}>
-              Home
+            <button className="btn" onClick={closeThisTab}>
+              Close tab
             </button>
           </div>
         </div>
@@ -158,8 +159,8 @@ function PickFile() {
           <button className="btn primary" onClick={() => void open()}>
             Open file… <kbd>{MOD}O</kbd>
           </button>
-          <button className="btn" onClick={() => navigate({ name: "home" })}>
-            Home
+          <button className="btn" onClick={closeThisTab}>
+            Close tab
           </button>
         </div>
         {files.length > 0 && (
@@ -183,6 +184,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   const [cursor, setCursor] = useState<GridCursor | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
+  const [saveMenu, setSaveMenu] = useState<{ x: number; y: number } | null>(null);
+  const [saving, setSaving] = useState(false);
   const [totalRows, setTotalRows] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(() => readFlag(DETAILS_KEY));
   const [showSql, setShowSql] = useState(false);
@@ -253,6 +256,32 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     push(filteredSheet(sheet, cond, `${selection.size} selected`));
   };
 
+  const savable = !props.demo && canSave(driver);
+  const isOriginal = stack.length === 1;
+  const save = async (format?: SaveFormat) => {
+    if (props.demo) return toast("Demo data can't be saved.");
+    if (!savable || saving) return;
+    setSaving(true);
+    try {
+      const name = await saveSheet({ driver, table, fileName: props.name, sheet, isOriginal, format });
+      if (name) toast(`Saved ${name}`);
+    } catch (e) {
+      toast(`Couldn't save: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const openSaveMenu = (el?: HTMLElement | null) => {
+    const r = (el ?? document.querySelector<HTMLElement>(".save-btn"))?.getBoundingClientRect();
+    setSaveMenu({ x: r ? r.right - 220 : 80, y: r ? r.bottom + 4 : 60 });
+  };
+  const own = formatOf(props.name);
+  const saveItems: MenuItem[] = SAVE_FORMATS.map((f) => ({
+    label: `${isOriginal ? "Save" : "Save this sheet"} as ${f.label}`,
+    hint: f.format === own ? `${MOD}S` : undefined,
+    onClick: () => void save(f.format),
+  }));
+
   useKeys({
     escape: back,
     "mod+i": openSummary,
@@ -267,7 +296,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
         const r = await rememberFile(h);
         navigate({ name: "file", fileHandleId: r.id });
       }),
-    "mod+s": () => toast(props.demo ? "Demo data can't be saved." : "Save / Save as arrives with the file engine."),
+    "mod+s": () => void save(),
+    "mod+shift+s": () => (props.demo ? toast("Demo data can't be saved.") : openSaveMenu()),
   });
 
   const commands: PaletteCommand[] = [
@@ -277,7 +307,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     { id: "details", label: "Toggle the Details pane", hint: `${MOD}⌥R`, run: toggleDetails },
     { id: "sel", label: "Open selected rows as a sheet", run: openSelection },
     { id: "back", label: "Back one sheet", hint: "Esc", run: back },
-    { id: "home", label: "Go to Home", run: () => navigate({ name: "home" }) },
+    { id: "save", label: isOriginal ? "Save to disk" : "Save this sheet to disk", hint: `${MOD}S`, run: () => void save() },
+    ...SAVE_FORMATS.map((f) => ({ id: `save-${f.format}`, label: `Save as ${f.label}`, run: () => void save(f.format) })),
   ];
 
   const ext = props.name.split(".").pop()?.toUpperCase() ?? "";
@@ -285,9 +316,6 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   return (
     <div className="sheet">
       <div className="topbar">
-        <button className="btn icon ghost" title="Home" onClick={() => navigate({ name: "home" })} aria-label="Home">
-          <Icon name="home" />
-        </button>
         <nav className="crumbs" aria-label="Sheet stack">
           {stack.map((s, i) => (
             <span key={i} style={{ display: "contents" }}>
@@ -314,6 +342,31 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
           <button className="btn" onClick={() => setShowSql(!showSql)} aria-pressed={showSql} title={`Query this file with any SQL (${MOD}E)`}>
             SQL
           </button>
+          <span className="split-btn">
+            <button
+              className="btn save-btn"
+              disabled={!savable || saving}
+              onClick={() => void save()}
+              title={
+                props.demo
+                  ? "Demo data can't be saved"
+                  : isOriginal
+                    ? `Save ${props.name} to disk (${MOD}S)`
+                    : `Save the rows of this sheet (${sheet.title}) to disk (${MOD}S)`
+              }
+            >
+              <Icon name="download" /> {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              className="btn icon"
+              disabled={!savable || saving}
+              aria-label="Save as another format"
+              title={`Save as CSV, Parquet, JSON… (${MOD}⇧S)`}
+              onClick={(e) => openSaveMenu(e.currentTarget.previousElementSibling as HTMLElement)}
+            >
+              <Icon name="chevron-down" />
+            </button>
+          </span>
           <button
             className="btn ghost details-toggle"
             onClick={toggleDetails}
@@ -424,6 +477,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
           <span>{MOD}I: summary</span>
           <span>{MOD}F: filter</span>
           <span>{MOD}E: SQL</span>
+          <span>{MOD}S: save</span>
         </span>
         <span className="spacer" />
         <span className="count">
@@ -433,6 +487,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
           {state.summary && ` · ${fmtMs(state.summary.ms)}`}
         </span>
       </div>
+      {saveMenu && <ContextMenu x={saveMenu.x} y={saveMenu.y} items={saveItems} onClose={() => setSaveMenu(null)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
     </div>
   );

@@ -196,7 +196,7 @@ export function BackupSection() {
             </p>
             {paused && (
               <div className="note" style={{ marginBottom: 8 }}>
-                <b>Automatic backup is paused.</b> The file holds a backup this browser hasn't restored, so dbui won't overwrite it. Restore it from Home (shown when nothing is saved yet), or press Back up now to replace it with this browser's data.
+                <b>Automatic backup is paused.</b> The file holds a backup this browser hasn't restored, so dbui won't overwrite it. Restore it from the banner at the top of Settings (shown when nothing is saved yet), or press Back up now to replace it with this browser's data.
               </div>
             )}
             {state?.lastError && <div className="err" style={{ marginBottom: 8 }}>Last automatic backup failed: {state.lastError}</div>}

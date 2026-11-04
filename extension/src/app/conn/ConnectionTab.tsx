@@ -9,13 +9,13 @@ import { clearTable, emptyPending, pendingCount, toChangeSet, undo, type Pending
 import { tableRef } from "../lib/filters";
 import { ENGINE, ENV_VAR } from "../lib/format";
 import { ALT, MOD, useKeys } from "../lib/keys";
-import { navigate, openConnectionTab } from "../lib/route";
+import { closeThisTab, navigate, openConnectionTab } from "../lib/route";
 import { classifyRunnerError, runnerDrivers, type RunnerStatus } from "../lib/runner";
 import * as db from "../store/db";
 import { secretStore, sessionSecrets } from "../store/secrets";
 import { CommandPalette, Modal, useToast, type PaletteCommand, type Toast } from "../components/ui";
-import { RunnerCard } from "../home/RunnerCard";
-import { ConnectionForm, EnginePicker } from "../home/NewConnection";
+import { RunnerCard } from "../settings/RunnerCard";
+import { ConnectionForm, EnginePicker } from "./NewConnection";
 import type { FormState } from "../lib/connForm";
 import { DetailsPane } from "./DetailsPane";
 import { LeftPane } from "./LeftPane";
@@ -129,8 +129,8 @@ export function ConnectionTab({ connectionId }: { connectionId: string }) {
       return (
         <Centered>
           <p>This connection no longer exists.</p>
-          <button className="btn" onClick={() => navigate({ name: "home" })}>
-            Go to Home
+          <button className="btn" onClick={closeThisTab}>
+            Close tab
           </button>
         </Centered>
       );
@@ -171,8 +171,8 @@ export function ConnectionTab({ connectionId }: { connectionId: string }) {
               }}
             />
           </div>
-          <button className="btn ghost" onClick={() => navigate({ name: "home" })}>
-            Back to Home
+          <button className="btn ghost" onClick={closeThisTab}>
+            Close tab
           </button>
         </Centered>
       );
@@ -196,8 +196,8 @@ export function ConnectionTab({ connectionId }: { connectionId: string }) {
             >
               {phase.message.startsWith("dbui was updated while this tab was open") ? "Reload tab" : "Retry"}
             </button>
-            <button className="btn" onClick={() => navigate({ name: "home" })}>
-              Home
+            <button className="btn" onClick={closeThisTab}>
+              Close tab
             </button>
           </div>
         </Centered>
@@ -218,10 +218,10 @@ function PasswordPrompt(props: { cfg: SavedConnection; error?: string; onSubmit:
   return (
     <Modal
       title={`${label} for ${props.cfg.name}`}
-      onClose={() => navigate({ name: "home" })}
+      onClose={closeThisTab}
       actions={
         <>
-          <button className="btn" onClick={() => navigate({ name: "home" })}>
+          <button className="btn" onClick={closeThisTab}>
             Cancel
           </button>
           <button className="btn primary" onClick={() => props.onSubmit(v, remember)}>
@@ -529,7 +529,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       { id: "left", label: "Toggle left pane", hint: `${MOD}\\`, run: () => setShowLeft((v) => !v) },
       { id: "right", label: "Toggle Details pane", hint: `${MOD}⌥R`, run: () => setShowRight((v) => !v) },
       { id: "ro", label: readOnly ? "Turn read-only off" : "Turn read-only on", run: toggleReadOnly },
-      { id: "home", label: "Go to Home", hint: `${MOD}⇧H`, run: () => navigate({ name: "home" }) },
       { id: "settings", label: "Settings", run: () => navigate({ name: "settings" }) },
       { id: "edit", label: "Connection settings…", run: () => setEditing(true) },
     ];
@@ -573,9 +572,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         <button className="btn icon ghost" title={`Toggle left pane (${MOD}\\)`} aria-pressed={showLeft} onClick={() => setShowLeft(!showLeft)} aria-label="Toggle left pane">
           <Icon name="sidebar" />
         </button>
-        <button className="btn icon ghost" title="Connections (Home)" onClick={() => navigate({ name: "home" })} aria-label="Connections">
-          <Icon name="home" />
-        </button>
         <button className="btn ghost" title={`New query tab (${ALT}T)`} onClick={() => openSql()}>
           <Icon name="query" />
           SQL
@@ -604,7 +600,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
           }}
           actions={[
             { id: "new", label: "New connection…", icon: "plus", run: () => setCreating({ step: "pick" }) },
-            { id: "manage", label: "Manage connections…", icon: "home", run: () => navigate({ name: "home" }) },
           ]}
         />
         <div className="capsule">
@@ -754,7 +749,7 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         />
       )}
       {creating?.step === "pick" && (
-        <EnginePicker onCancel={() => setCreating(null)} onPick={(driver, prefill) => setCreating({ step: "form", driver, prefill })} onNewGroup={() => navigate({ name: "home" })} />
+        <EnginePicker onCancel={() => setCreating(null)} onPick={(driver, prefill) => setCreating({ step: "form", driver, prefill })} />
       )}
       {creating?.step === "form" && (
         <ConnectionForm

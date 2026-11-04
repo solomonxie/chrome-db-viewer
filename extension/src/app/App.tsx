@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
-import { navigate, parseRoute, type Route } from "./lib/route";
-import { useKeys } from "./lib/keys";
+import { parseRoute, type Route } from "./lib/route";
 import { ToastProvider } from "./components/ui";
-import { Home } from "./home/Home";
+import { ConnectionEditor } from "./conn/ConnectionEditor";
 import { ConnectionTab } from "./conn/ConnectionTab";
 import { FileSheet } from "./file/FileSheet";
 import { Settings } from "./settings/Settings";
 import { DownloadPrompt } from "./settings/DownloadPrompt";
 import { ChainView } from "./chains/ChainView";
 import { migrateSavedQueries } from "./collections/migrateSaved";
-import { RestoreBanner, useRestoreOffer } from "./home/RestoreBanner";
 import { startAutoBackup } from "./store/autoBackup";
 
 function useRoute(): Route {
@@ -39,12 +37,6 @@ function fileTitle(src: string): string {
 
 export function App() {
   const route = useRoute();
-  // Bumped after a backup restore so Home reloads its lists.
-  const [homeKey, setHomeKey] = useState(0);
-  const restore = useRestoreOffer(route.name === "home");
-
-  useKeys({ "mod+shift+h": () => navigate({ name: "home" }) });
-
   // Old "Saved" tab rows move into the "Saved queries" collection once; later runs find nothing to do.
   useEffect(() => {
     void migrateSavedQueries().catch(() => {});
@@ -56,7 +48,7 @@ export function App() {
   // Pages that show one thing (a connection, a file, a workflow) title the tab with its name
   // themselves once it's loaded; this only sets the fixed ones, plus a placeholder while loading.
   useEffect(() => {
-    const fixed: Partial<Record<Route["name"], string>> = { home: "Chrome DB Viewer", settings: "Settings", "download-prompt": "Open in viewer?" };
+    const fixed: Partial<Record<Route["name"], string>> = { settings: "Settings", "connection-editor": "New connection", "download-prompt": "Open in viewer?" };
     const title = fixed[route.name];
     if (title) document.title = title;
     else if (route.name === "file" && route.src) document.title = fileTitle(route.src);
@@ -65,24 +57,8 @@ export function App() {
 
   let page;
   switch (route.name) {
-    case "home":
-      page = (
-        <Home
-          key={homeKey + (route.newConnection ? ":new" : "")}
-          newConnection={route.newConnection}
-          banner={
-            restore.offer ? (
-              <RestoreBanner
-                offer={restore.offer}
-                onDone={(restored) => {
-                  restore.dismiss();
-                  if (restored) setHomeKey((k) => k + 1);
-                }}
-              />
-            ) : undefined
-          }
-        />
-      );
+    case "connection-editor":
+      page = <ConnectionEditor key={(route.connectionId ?? "") + (route.driver ?? "")} connectionId={route.connectionId} driver={route.driver} />;
       break;
     case "connection":
       page = <ConnectionTab key={route.connectionId} connectionId={route.connectionId} />;

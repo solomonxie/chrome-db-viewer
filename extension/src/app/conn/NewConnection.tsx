@@ -13,9 +13,43 @@ import { secretStore, sessionSecrets } from "../store/secrets";
 import { EngineBadge, Modal } from "../components/ui";
 
 const COLS = 4;
+
+/**
+ * Where a sheet renders: a Modal in an app tab, or `inline` inside the toolbar popup. In the
+ * popup, a file chooser would close the popup (Chrome closes it when it loses focus), so file
+ * fields offer `openInTab` instead.
+ */
+export interface InlineHost {
+  openInTab: () => void;
+}
+
+function Shell(props: { inline?: InlineHost; title: React.ReactNode; onClose: () => void; actions: React.ReactNode; children: React.ReactNode }) {
+  if (!props.inline) {
+    return (
+      <Modal title={props.title} wide onClose={props.onClose} actions={props.actions}>
+        {props.children}
+      </Modal>
+    );
+  }
+  return (
+    <section
+      className="inline-sheet"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          props.onClose();
+        }
+      }}
+    >
+      <h3>{props.title}</h3>
+      {props.children}
+      <div className="acts">{props.actions}</div>
+    </section>
+  );
+}
 const ENVS: Env[] = ["local", "dev", "staging", "production"];
 
-export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<FormState>) => void; onCancel: () => void; onNewGroup: () => void }) {
+export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<FormState>) => void; onCancel: () => void; inline?: InlineHost }) {
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const [importing, setImporting] = useState(false);
@@ -36,17 +70,14 @@ export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<F
   };
 
   return (
-    <Modal
+    <Shell
+      inline={props.inline}
       title="New connection"
-      wide
       onClose={props.onCancel}
       actions={
         <>
           <button className="btn" onClick={() => setImporting(!importing)} aria-pressed={importing}>
             Import connection
-          </button>
-          <button className="btn" onClick={props.onNewGroup}>
-            New group
           </button>
           <span className="spacer" />
           <button className="btn" onClick={props.onCancel}>
@@ -137,7 +168,7 @@ export function EnginePicker(props: { onPick: (id: DriverId, prefill?: Partial<F
           </div>
         </div>
       )}
-    </Modal>
+    </Shell>
   );
 }
 
@@ -147,6 +178,7 @@ function FieldInput(props: {
   file?: { id: string; name: string };
   onChange: (v: unknown) => void;
   onFile: (f: { id: string; name: string }) => void;
+  inline?: InlineHost;
 }) {
   const { f, value } = props;
   const id = `f_${f.key}`;
@@ -166,6 +198,16 @@ function FieldInput(props: {
     case "textarea":
       return <textarea id={id} className="input mono" rows={3} value={String(value ?? "")} onChange={(e) => props.onChange(e.target.value)} />;
     case "file":
+      if (props.inline) {
+        return (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+            <button id={id} className="btn" type="button" onClick={props.inline.openInTab} title="Chrome closes this popup when a file chooser opens">
+              Choose in a tab…
+            </button>
+            {props.file && <span className="mono faint">{props.file.name}</span>}
+          </div>
+        );
+      }
       return (
         <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
           <button
@@ -210,6 +252,7 @@ export function ConnectionForm(props: {
   groups: string[];
   onSaved: (c: db.SavedConnection, connect: boolean) => void;
   onCancel: () => void;
+  inline?: InlineHost;
 }) {
   const spec = engine(props.driver)!;
   const [form, setForm] = useState<FormState>(() =>
@@ -291,14 +334,14 @@ export function ConnectionForm(props: {
   const authField = props.driver === "bigquery";
 
   return (
-    <Modal
+    <Shell
+      inline={props.inline}
       title={
         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <EngineBadge driver={spec.id} name={spec.name} badge={spec.badge} />
           {props.existing ? `Edit ${props.existing.name}` : `New ${spec.name} connection`}
         </span>
       }
-      wide
       onClose={props.onCancel}
       actions={
         <>
@@ -364,7 +407,7 @@ export function ConnectionForm(props: {
           .filter((f) => !(authField && f.key === "auth"))
           .map((f) => (
             <FieldRow key={f.key} f={f}>
-              <FieldInput f={f} value={form.values[f.key]} file={form.files[f.key]} onChange={(v) => set(f.key, v)} onFile={(file) => setForm((s) => ({ ...s, files: { ...s.files, [f.key]: file } }))} />
+              <FieldInput f={f} value={form.values[f.key]} file={form.files[f.key]} onChange={(v) => set(f.key, v)} onFile={(file) => setForm((s) => ({ ...s, files: { ...s.files, [f.key]: file } }))} inline={props.inline} />
             </FieldRow>
           ))}
 
@@ -389,7 +432,7 @@ export function ConnectionForm(props: {
       {spec.needsRunner && <div className="note">This engine runs through the dbui runner. Without it, opening the connection shows the install card.</div>}
       {test.state === "error" && <ErrorLine msg={test.msg ?? ""} />}
       {error && <ErrorLine msg={error} />}
-    </Modal>
+    </Shell>
   );
 }
 

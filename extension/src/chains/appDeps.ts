@@ -1,22 +1,23 @@
 // The real ChainDeps for the app: the Collections template engine, the script sandbox, saved
-// connections (with their secrets) and the collection's library. Tests build their own deps.
+// connections (with their secrets) and every collection's named queries. Tests build their own deps.
 
 import type { ConnectionConfig } from "@core/types";
 import { render } from "../collections/render";
-import { loadBundle } from "../collections/store";
+import { listCollections, loadBundle } from "../collections/store";
 import { runPostScripts, runPreScripts, runScript } from "../sandbox/client";
 import { loadConnection, needsSecret, openDriver, resolveSecret, withSecret } from "../app/lib/connections";
 import type { ChainDeps } from "./runner";
-import { buildLibrary, EMPTY_LIBRARY, type ChainLibrary } from "./library";
+import { buildGlobalLibrary, EMPTY_LIBRARY, type ChainLibrary } from "./library";
 import type { ExportFormat } from "./local";
 
 const MIME: Record<ExportFormat, string> = { csv: "text/csv", jsonl: "application/x-ndjson", parquet: "application/vnd.apache.parquet" };
 
-/** Library of a chain's collection; empty when the collection is gone. */
-export async function chainLibrary(collectionId: string): Promise<ChainLibrary> {
+/** Every collection's named queries, for any workflow. Workflows don't belong to a collection. */
+export async function chainLibrary(): Promise<ChainLibrary> {
   try {
-    const b = await loadBundle(collectionId);
-    return b ? buildLibrary(b.collection, b.folders, b.queries) : EMPTY_LIBRARY;
+    const cols = await listCollections();
+    const bundles = (await Promise.all(cols.map((c) => loadBundle(c.id)))).filter((b) => !!b);
+    return buildGlobalLibrary(bundles);
   } catch {
     return EMPTY_LIBRARY;
   }

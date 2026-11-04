@@ -3,6 +3,7 @@
 // uses the page's shared DuckDB-WASM in the browser and the blocking Node build in tests.
 
 import { collect, type Cell, type Column, type Driver } from "@core/types";
+import { isStaleChunkError, STALE_BUILD_MESSAGE } from "@core/registry";
 import type { DuckEngine } from "../drivers/duckdb/engine";
 import type { ResultTable } from "../collections/model";
 
@@ -18,6 +19,19 @@ export interface LocalDb {
   /** COPY (sql) TO an in-memory file in `format`, returning the bytes. */
   exportBytes(format: ExportFormat, sql: string): Promise<Uint8Array>;
   close(): Promise<void>;
+}
+
+/**
+ * A lazy chunk import. When the extension was rebuilt while this tab was open, the chunk names
+ * this page knows are gone; say so instead of Chrome's "Failed to fetch dynamically imported module".
+ */
+async function lazy<T>(load: () => Promise<T>): Promise<T> {
+  try {
+    return await load();
+  } catch (e) {
+    if (isStaleChunkError(e)) throw new Error(STALE_BUILD_MESSAGE);
+    throw e;
+  }
 }
 
 /** Name of a step's table in the local database. */
@@ -70,8 +84,8 @@ function jsonCell(v: Cell, type: string): unknown {
 
 /** Opens a fresh in-memory local database. `engine` defaults to the page's DuckDB-WASM. */
 export async function createLocalDb(engine?: () => Promise<DuckEngine>): Promise<LocalDb> {
-  const mod = await import("../drivers/duckdb/index");
-  const getEngine = engine ?? (async () => (await import("../drivers/duckdb/browser")).getBrowserEngine());
+  const mod = await lazy(() => import("../drivers/duckdb/index"));
+  const getEngine = engine ?? (async () => (await lazy(() => import("../drivers/duckdb/browser"))).getBrowserEngine());
   let eng: DuckEngine | null = null;
   const driver = mod.createDriver({
     engine: async () => {

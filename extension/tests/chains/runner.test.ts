@@ -72,7 +72,7 @@ test("a list over the value cap is refused with a clear error", async () => {
   const { summary, deps } = await run("set_vars_lookup.json", { valueCap: 2 });
   expect(summary.status).toBe("failed");
   expect(summary.failedStep).toBe("pick");
-  expect(summary.steps.pick!.error).toBe(`"top_ad_ids" holds 3 values, over the limit of 2. Pass the table with a Transform: SQL step instead.`);
+  expect(summary.steps.pick!.error).toBe(`"top_ad_ids" holds 3 values, over the limit of 2. Pass the table with a Transform: DuckDB step instead.`);
   expect(summary.steps.lookup).toMatchObject({ status: "skipped" });
   expect(deps.log.executed.some((e) => e.conn === "pg")).toBe(false);
 });

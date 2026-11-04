@@ -33,10 +33,12 @@
   --grid-alt: #262626;
   --grid-head: #2a2a2a;
   --grid-line: #2f2f2f;
-  --env-prod: #e5534b;
-  --env-stage: #d6a03c;
+  --env-prod: #e8913a;
+  --env-stage: #a371f7;
   --env-dev: #4c8dff;
   --env-local: #a3a3a3;
+  /* Warnings, highlights, stars: amber, separate from the env colours. */
+  --warn: #d6a03c;
   --edit-bg: #3d3313;
   --edit-fg: #f5d069;
   --add-bg: #17351f;
@@ -79,7 +81,7 @@
   --btn: #ffffff; --btn-hover: #f2f2f2; --btn-line: #d4d4d4; --field: #ffffff; --field-line: #d4d4d4;
   --sel: #0a5ad4; --sel-fg: #ffffff; --sel-soft: rgb(10 90 212 / .12); --cur-cell: #e5484d;
   --grid-bg: #ffffff; --grid-alt: #f7f7f7; --grid-head: #f0f0f0; --grid-line: #e6e6e6;
-  --env-prod: #c4352b; --env-stage: #9a6312; --env-dev: #2f6fd6; --env-local: #6b6b6b;
+  --env-prod: #b8620f; --env-stage: #8250df; --env-dev: #2f6fd6; --env-local: #6b6b6b; --warn: #9a6312;
   --edit-bg: #fff3cf; --edit-fg: #7a5200; --add-bg: #e1f5e6; --add-fg: #1f6b35; --del-bg: #fde4e1; --del-fg: #a3271f;
   --kw: #8a3ab9; --str: #1f7a4d; --num: #b4540a; --fn: #1b5fb5; --com: #7b7b7b; --param: #a0305f;
   --bar: #0a64d8; --bar-track: #e6e6e6; --curcol: #eef3fa; --scrim: rgb(0 0 0 / .3);
@@ -96,7 +98,7 @@
     --btn: #ffffff; --btn-hover: #f2f2f2; --btn-line: #d4d4d4; --field: #ffffff; --field-line: #d4d4d4;
     --sel: #0a5ad4; --sel-fg: #ffffff; --sel-soft: rgb(10 90 212 / .12); --cur-cell: #e5484d;
     --grid-bg: #ffffff; --grid-alt: #f7f7f7; --grid-head: #f0f0f0; --grid-line: #e6e6e6;
-    --env-prod: #c4352b; --env-stage: #9a6312; --env-dev: #2f6fd6; --env-local: #6b6b6b;
+    --env-prod: #b8620f; --env-stage: #8250df; --env-dev: #2f6fd6; --env-local: #6b6b6b; --warn: #9a6312;
     --edit-bg: #fff3cf; --edit-fg: #7a5200; --add-bg: #e1f5e6; --add-fg: #1f6b35; --del-bg: #fde4e1; --del-fg: #a3271f;
     --kw: #8a3ab9; --str: #1f7a4d; --num: #b4540a; --fn: #1b5fb5; --com: #7b7b7b; --param: #a0305f;
     --bar: #0a64d8; --bar-track: #e6e6e6; --curcol: #eef3fa; --scrim: rgb(0 0 0 / .3);

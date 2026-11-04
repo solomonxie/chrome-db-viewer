@@ -4,23 +4,22 @@
 // rendered SQL, result preview, tests and log underneath.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Chain, ChainStep, ChainStepKind, Collection, NamedQuery, VarDef } from "../../collections/model";
-import { listCollections, loadBundle, onCollectionsChanged } from "../../collections/store";
-import { CollectionSettings } from "../collections/CollectionSettings";
+import type { Chain, ChainStep, ChainStepKind, NamedQuery, VarDef } from "../../collections/model";
+import { listAllQueries, onCollectionsChanged } from "../../collections/store";
 import { buildGraph, ChainGraphError, type ChainGraph } from "../../chains/graph";
 import { cachedResult, clearCache, estimateChain, runChain, type ChainEstimate, type ChainEvent, type StepEvent } from "../../chains/runner";
 import { appChainDeps, chainLibrary } from "../../chains/appDeps";
 import type { ChainLibrary } from "../../chains/library";
 import type { Destructive } from "../lib/safety";
 import { listConnections, type SavedConnection } from "../lib/connections";
-import { navigate } from "../lib/route";
-import { byCollection } from "../store/db";
+import { closeThisTab, navigate } from "../lib/route";
 import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { DataGrid, type GridCursor } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { Icon } from "../components/Icon";
 import { Modal, TypedConfirm, useToast } from "../components/ui";
 import { kindLabel, loadChain, newStep, saveChain, STEP_KINDS } from "./chainStore";
+import { downloadWorkflow } from "./WorkflowImport";
 import { splitStatementsRaw } from "../../collections/split";
 
 type StepState = Partial<StepEvent> & { status?: StepEvent["status"] };
@@ -46,14 +45,11 @@ export function ChainView({ chainId }: { chainId: string }) {
   const [estimate, setEstimate] = useState<{ est: ChainEstimate; blocked: boolean } | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
-  const [showVars, setShowVars] = useState(false);
-  const [collections, setCollections] = useState<Collection[]>([]);
   const [colVersion, setColVersion] = useState(0);
-  const [showCollection, setShowCollection] = useState(false);
   const ac = useRef<AbortController | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Load the chain, its collection's library and the connection list.
+  // Load the workflow and the connection list.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -62,11 +58,9 @@ export function ChainView({ chainId }: { chainId: string }) {
       setChain(c ?? null);
       if (!c) return;
       document.title = c.name;
-      const [l, cs] = await Promise.all([chainLibrary(c.collectionId), listConnections()]);
+      const cs = await listConnections();
       if (cancelled) return;
-      setLib(l);
       setConns(cs);
-      setQueries(await byCollection("namedQueries", c.collectionId).catch(() => []));
     })();
     return () => {
       cancelled = true;
@@ -74,24 +68,22 @@ export function ChainView({ chainId }: { chainId: string }) {
     };
   }, [chainId]);
 
-  // The home collection: shown as a tag in the header, and changeable.
+  // Named queries from every collection; reloaded when a collection changes.
   useEffect(() => onCollectionsChanged(() => setColVersion((v) => v + 1)), []);
   useEffect(() => {
-    listCollections().then(setCollections, () => setCollections([]));
-  }, [colVersion]);
-  const homeId = chain?.collectionId;
-  useEffect(() => {
-    if (!homeId) return;
     let cancelled = false;
-    void Promise.all([chainLibrary(homeId), loadBundle(homeId).then((b) => b?.queries ?? [], () => [])]).then(([l, qs]) => {
+    void chainLibrary().then((l) => {
       if (cancelled) return;
       setLib(l);
-      setQueries(qs);
     });
+    void listAllQueries().then(
+      (qs) => !cancelled && setQueries(qs),
+      () => !cancelled && setQueries([]),
+    );
     return () => {
       cancelled = true;
     };
-  }, [homeId, colVersion]);
+  }, [colVersion]);
 
   // Show cached results from earlier runs this session.
   useEffect(() => {
@@ -264,15 +256,14 @@ export function ChainView({ chainId }: { chainId: string }) {
       <div className="chain-page">
         <div className="empty">
           This workflow doesn't exist any more.{" "}
-          <button className="btn" onClick={() => navigate({ name: "home" })}>
-            Home
+          <button className="btn" onClick={closeThisTab}>
+            Close tab
           </button>
         </div>
       </div>
     );
   }
 
-  const home = collections.find((c) => c.id === chain.collectionId);
   const sel = chain.steps.find((s) => s.name === selected);
   const selState = sel ? states[sel.name] : undefined;
   const total = Object.values(states).reduce((a, s) => a + (s.bytesBilled ?? 0), 0);
@@ -280,43 +271,8 @@ export function ChainView({ chainId }: { chainId: string }) {
   return (
     <div className="chain-page">
       <header className="topbar chain-top">
-        <button className="btn icon ghost" title="Home" aria-label="Home" onClick={() => navigate({ name: "home" })}>
-          <Icon name="home" />
-        </button>
         <span className="wf-label">Workflow</span>
         <input className="input chain-name" value={chain.name} aria-label="Workflow name" onChange={(e) => update((c) => ({ ...c, name: e.target.value }))} />
-        <span className="wf-home">
-          {home ? (
-            <button className="wf-tag home" title="Open this collection's variables and environments" onClick={() => setShowCollection(true)}>
-              {home.name}
-            </button>
-          ) : (
-            <span className="wf-tag missing" title="The home collection was deleted; pick another">
-              No collection
-            </span>
-          )}
-          <select
-            className="input wf-home-pick"
-            aria-label="Change collection"
-            title="Change the collection whose variables and named queries this workflow uses"
-            value=""
-            onChange={(e) => {
-              const id = e.target.value;
-              if (!id || id === chain.collectionId) return;
-              update((c) => ({ ...c, collectionId: id }));
-              toast(`Workflow now uses "${collections.find((c) => c.id === id)?.name ?? "collection"}"`);
-            }}
-          >
-            <option value="">Change…</option>
-            {collections
-              .filter((c) => c.id !== chain.collectionId)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </span>
         <span className="spacer" />
         {running ? (
           <button className="btn warn" onClick={() => ac.current?.abort()}>
@@ -327,9 +283,6 @@ export function ChainView({ chainId }: { chainId: string }) {
             {estimating ? "Estimating…" : "Run all"}
           </button>
         )}
-        <button className="btn" aria-pressed={showVars} onClick={() => setShowVars((v) => !v)}>
-          Variables{chain.vars.length ? ` (${chain.vars.length})` : ""}
-        </button>
         <button
           className="btn"
           disabled={running}
@@ -342,13 +295,17 @@ export function ChainView({ chainId }: { chainId: string }) {
         >
           Clear cache
         </button>
+        <button className="btn" title="Save this workflow as a .dbui-workflow.json file" onClick={() => void downloadWorkflow(chain).catch((e) => toast((e as Error).message))}>
+          Export file
+        </button>
       </header>
+      {chain.description && <p className="chain-desc muted">{chain.description}</p>}
 
       <div className="chain-body">
         <div className="chain-steps">
           {graph.error && <div className="err">{graph.error}</div>}
           {runError && <div className="err">{runError}</div>}
-          {showVars && <VarsEditor vars={chain.vars} runVars={runVars} onChange={(vars) => update((c) => ({ ...c, vars }))} />}
+          <VarsEditor vars={chain.vars} runVars={runVars} onChange={(vars) => update((c) => ({ ...c, vars }))} />
           {chain.steps.length === 0 && <div className="empty">No steps yet. Add a Query step to start.</div>}
           {chain.steps.map((s, i) => (
             <StepCard
@@ -363,6 +320,7 @@ export function ChainView({ chainId }: { chainId: string }) {
               queries={queries}
               lib={lib}
               conns={conns}
+              earlier={chain.steps.slice(0, i).map((x) => ({ name: x.name, columns: (states[x.name]?.columns ?? []).map((c) => c.name) }))}
               onSelect={() => setSelected(s.name)}
               onChange={(patch) => updateStep(s.id, patch)}
               onRename={(n) => renameStep(s, n)}
@@ -398,7 +356,6 @@ export function ChainView({ chainId }: { chainId: string }) {
           }}
         />
       )}
-      {showCollection && home && <CollectionSettings collection={home} onClose={() => setShowCollection(false)} />}
       {confirm && (
         <TypedConfirm
           title="Destructive statement on production"
@@ -469,6 +426,8 @@ function StepCard(props: {
   queries: NamedQuery[];
   lib: ChainLibrary | null;
   conns: SavedConnection[];
+  /** Steps above this one, with their columns from the last run, for pickers. */
+  earlier: { name: string; columns: string[] }[];
   onSelect: () => void;
   onChange: (patch: Partial<ChainStep>) => void;
   onRename: (name: string) => void;
@@ -517,6 +476,7 @@ function StepCard(props: {
           <Icon name="trash" />
         </button>
       </div>
+      {step.description && <p className="cs-desc muted">{step.description}</p>}
       <div className="cs-deps muted">
         {props.inputs.length ? (
           <>
@@ -528,13 +488,13 @@ function StepCard(props: {
         {state?.inlinedInto && <> · inlined as a CTE into {state.inlinedInto.join(", ")}</>}
         {state?.reason && <> · {state.reason}</>}
       </div>
-      <StepEditor step={step} queries={props.queries} lib={props.lib} conns={props.conns} onChange={props.onChange} />
+      <StepEditor step={step} queries={props.queries} lib={props.lib} conns={props.conns} earlier={props.earlier} onChange={props.onChange} />
       {state?.error && <div className="err">{state.error}</div>}
     </section>
   );
 }
 
-function StepEditor({ step, queries, lib, conns, onChange }: { step: ChainStep; queries: NamedQuery[]; lib: ChainLibrary | null; conns: SavedConnection[]; onChange: (p: Partial<ChainStep>) => void }) {
+function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: ChainStep; queries: NamedQuery[]; lib: ChainLibrary | null; conns: SavedConnection[]; earlier: { name: string; columns: string[] }[]; onChange: (p: Partial<ChainStep>) => void }) {
   switch (step.kind) {
     case "query": {
       const q = step.queryId ? queries.find((x) => x.id === step.queryId) : undefined;
@@ -583,7 +543,20 @@ function StepEditor({ step, queries, lib, conns, onChange }: { step: ChainStep; 
       return (
         <div className="cs-editor">
           <SqlEditor className="cs-sql" value={step.sql ?? ""} onChange={(sql) => onChange({ sql })} placeholder={`SELECT … FROM {{ ref("a") }} JOIN {{ ref("b") }} USING (id)`} aria-label="Transform SQL" />
-          <small className="muted">Runs locally in DuckDB. {"{{ ref(\"step\") }}"} is that step's result table.</small>
+          <small className="muted">
+            DuckDB SQL, run on this machine. <code>{'{{ ref("step") }}'}</code> is that step's result table.
+          </small>
+          {earlier.some((x) => x.columns.length) && (
+            <div className="cs-cols">
+              {earlier
+                .filter((x) => x.columns.length)
+                .map((x) => (
+                  <div key={x.name}>
+                    <code>{x.name}</code>: {x.columns.map((c) => <span key={c} className="mono">{c}</span>)}
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       );
     case "transform-script":
@@ -604,23 +577,52 @@ function StepEditor({ step, queries, lib, conns, onChange }: { step: ChainStep; 
         </div>
       );
     case "set-vars":
-      return <AssignmentsEditor value={step.assignments ?? {}} onChange={(assignments) => onChange({ assignments })} />;
-    case "export":
+      return <AssignmentsEditor value={step.assignments ?? {}} earlier={earlier} onChange={(assignments) => onChange({ assignments })} />;
+    case "export": {
+      const fmt = step.format ?? "csv";
+      const source = (step.sql ?? "").trim();
       return (
         <div className="cs-editor">
           <div className="cs-row">
             <label>
-              Format{" "}
-              <select className="input" value={step.format ?? "csv"} onChange={(e) => onChange({ format: e.target.value as ChainStep["format"] })}>
+              Save as{" "}
+              <select className="input" value={fmt} onChange={(e) => onChange({ format: e.target.value as ChainStep["format"] })}>
                 <option value="csv">CSV</option>
-                <option value="jsonl">JSONL</option>
+                <option value="jsonl">JSON Lines</option>
                 <option value="parquet">Parquet</option>
               </select>
             </label>
+            <label>
+              Step{" "}
+              <select
+                className="input"
+                value={/^SELECT \* FROM \{\{ ref\("(\w+)"\) \}\}$/.exec(source)?.[1] ?? (source ? "__sql" : "")}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__sql") onChange({ sql: source && !/^SELECT \* FROM \{\{ ref/.test(source) ? source : `SELECT *\nFROM {{ ref("${earlier.at(-1)?.name ?? "step"}") }}` });
+                  else onChange({ sql: v ? `SELECT * FROM {{ ref("${v}") }}` : undefined });
+                }}
+              >
+                {earlier.length === 0 && <option value="">(add a step above first)</option>}
+                {earlier.map((x) => (
+                  <option key={x.name} value={x.name}>
+                    {x.name}
+                  </option>
+                ))}
+                <option value="__sql">DuckDB query…</option>
+              </select>
+            </label>
           </div>
-          <SqlEditor className="cs-sql short" value={step.sql ?? ""} onChange={(sql) => onChange({ sql })} placeholder={`SELECT * FROM {{ ref("report") }}`} aria-label="Export SQL" />
+          {source && !/^SELECT \* FROM \{\{ ref\("\w+"\) \}\}$/.test(source) && (
+            <SqlEditor className="cs-sql short" value={step.sql ?? ""} onChange={(sql) => onChange({ sql })} placeholder={`SELECT * FROM {{ ref("report") }} WHERE …`} aria-label="Export query" />
+          )}
+          <small className="muted">
+            Writes the step's result to a file with DuckDB's <code>COPY … TO</code> ({fmt === "csv" ? "with a header row" : fmt === "jsonl" ? "one JSON object per line" : "columnar, compressed"}), on this machine. Chrome asks where to save it. Pick <i>DuckDB query…</i> to
+            filter or reshape first.
+          </small>
         </div>
       );
+    }
     case "assert":
       return (
         <div className="cs-editor">
@@ -640,39 +642,120 @@ function StepEditor({ step, queries, lib, conns, onChange }: { step: ChainStep; 
   }
 }
 
-function AssignmentsEditor({ value, onChange }: { value: Record<string, string>; onChange: (v: Record<string, string>) => void }) {
+/** What a Set variables row takes from a step: a list of a column's values, one value, or a number. */
+const PICKS = [
+  { fn: "column", label: "All values of", hint: "a list", use: "sql_list" },
+  { fn: "distinct", label: "Unique values of", hint: "a list", use: "sql_list" },
+  { fn: "first", label: "First value of", hint: "one value", use: "sql" },
+  { fn: "max", label: "Largest value of", hint: "one value", use: "sql" },
+  { fn: "min", label: "Smallest value of", hint: "one value", use: "sql" },
+  { fn: "sum", label: "Sum of", hint: "a number", use: "sql" },
+  { fn: "count", label: "Row count of", hint: "a number", use: "sql" },
+] as const;
+
+/** Splits `fn("step", "col")` / `count("step")` into its parts; anything else is a custom expression. */
+export function parsePick(expr: string): { fn: string; step: string; col: string } | null {
+  const m = /^\s*(\w+)\(\s*"([^"]*)"\s*(?:,\s*"([^"]*)"\s*)?\)\s*$/.exec(expr);
+  if (!m || !PICKS.some((p) => p.fn === m[1])) return null;
+  if (m[1] !== "count" && m[3] === undefined) return null;
+  return { fn: m[1]!, step: m[2]!, col: m[3] ?? "" };
+}
+const pickExpr = (fn: string, step: string, col: string) => (fn === "count" ? `count("${step}")` : `${fn}("${step}", "${col}")`);
+
+function AssignmentsEditor({ value, earlier, onChange }: { value: Record<string, string>; earlier: { name: string; columns: string[] }[]; onChange: (v: Record<string, string>) => void }) {
   const rows = Object.entries(value);
   const set = (i: number, k: string, v: string) => {
     const next = rows.map((r, j) => (j === i ? [k, v] : r));
     onChange(Object.fromEntries(next));
   };
+  const lastStep = earlier.at(-1);
   return (
     <div className="cs-editor">
-      {rows.map(([k, v], i) => (
-        <div className="cs-assign" key={i}>
-          <input className="input mono" value={k} aria-label="Variable name" onChange={(e) => set(i, e.target.value.replace(/[^\w]/g, "_"), v)} />
-          <span>=</span>
-          <input className="input mono" value={v} aria-label="Expression" placeholder={`column("top_ads", "ad_hash")`} onChange={(e) => set(i, k, e.target.value)} />
-          <button className="btn icon ghost" aria-label="Remove" onClick={() => onChange(Object.fromEntries(rows.filter((_, j) => j !== i)))}>
-            <Icon name="minus" />
-          </button>
-        </div>
-      ))}
+      <p className="cs-explain">
+        Takes values out of an earlier step's result so a later step can use them, for example the ids found in BigQuery
+        filtering a Postgres query: <code>{"WHERE id IN {{ ids | sql_list }}"}</code>.
+      </p>
+      {rows.map(([k, v], i) => {
+        const p = parsePick(v);
+        const pick = p ? PICKS.find((x) => x.fn === p.fn)! : undefined;
+        const cols = earlier.find((x) => x.name === p?.step)?.columns ?? [];
+        return (
+          <div className="cs-var" key={i}>
+            <div className="cs-var-row">
+              <input className="input mono cs-var-name" value={k} aria-label="Variable name" onChange={(e) => set(i, e.target.value.replace(/[^\w]/g, "_"), v)} />
+              <span className="muted">=</span>
+              <select
+                className="input"
+                aria-label="Take"
+                value={p?.fn ?? "__expr"}
+                onChange={(e) => {
+                  const fn = e.target.value;
+                  if (fn === "__expr") return set(i, k, v);
+                  set(i, k, pickExpr(fn, p?.step ?? lastStep?.name ?? "step", p?.col ?? lastStep?.columns[0] ?? "id"));
+                }}
+              >
+                {PICKS.map((x) => (
+                  <option key={x.fn} value={x.fn}>
+                    {x.label}
+                  </option>
+                ))}
+                <option value="__expr">Custom expression…</option>
+              </select>
+              {p && p.fn !== "count" && (
+                <>
+                  {cols.length ? (
+                    <select className="input mono" aria-label="Column" value={p.col} onChange={(e) => set(i, k, pickExpr(p.fn, p.step, e.target.value))}>
+                      {!cols.includes(p.col) && <option value={p.col}>{p.col}</option>}
+                      {cols.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="input mono cs-var-col" aria-label="Column" value={p.col} placeholder="column" title="Run the step once to pick from its columns" onChange={(e) => set(i, k, pickExpr(p.fn, p.step, e.target.value))} />
+                  )}
+                </>
+              )}
+              {p && (
+                <>
+                  <span className="muted">from</span>
+                  <select className="input mono" aria-label="Step" value={p.step} onChange={(e) => set(i, k, pickExpr(p.fn, e.target.value, p.col))}>
+                    {!earlier.some((x) => x.name === p.step) && <option value={p.step}>{p.step}</option>}
+                    {earlier.map((x) => (
+                      <option key={x.name} value={x.name}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <button className="btn icon ghost" aria-label="Remove" onClick={() => onChange(Object.fromEntries(rows.filter((_, j) => j !== i)))}>
+                <Icon name="minus" />
+              </button>
+            </div>
+            {!p && (
+              <input className="input mono" value={v} aria-label="Expression" placeholder={`len(column("top_ads", "ad_hash")) > 0 ? first("top_ads", "ad_hash") : "none"`} onChange={(e) => set(i, k, e.target.value)} />
+            )}
+            <small className="faint">
+              {pick ? <>Gives {pick.hint}. Use it in a later query as </> : <>Use it in a later query as </>}
+              <code>{`{{ ${k}${pick?.use === "sql_list" ? " | sql_list" : pick ? " | sql" : ""} }}`}</code>
+              {pick?.use === "sql_list" && <> (becomes <code>('a', 'b', …)</code>)</>}.
+            </small>
+          </div>
+        );
+      })}
       <div>
         <button
           className="btn"
           onClick={() => {
             let n = rows.length + 1;
             while (`var_${n}` in value) n++;
-            onChange({ ...value, [`var_${n}`]: "" });
+            onChange({ ...value, [rows.length ? `var_${n}` : "ids"]: pickExpr("column", lastStep?.name ?? "step", lastStep?.columns[0] ?? "id") });
           }}
         >
           <Icon name="plus" /> Variable
-        </button>{" "}
-        <small className="muted">
-          <code>column("step", "col")</code> → list, <code>first</code>, <code>max</code>/<code>min</code>, <code>count("step")</code>, or JSON like <code>[1, 2]</code>. Lists go into queries with{" "}
-          <code>{"{{ name | sql_list }}"}</code>.
-        </small>
+        </button>
       </div>
     </div>
   );

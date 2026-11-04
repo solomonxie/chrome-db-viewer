@@ -10,7 +10,7 @@ import { App } from "../../src/app/App";
 import { SaveAsNamedQuery } from "../../src/app/collections/SaveAsNamedQuery";
 import { ToastProvider } from "../../src/app/components/ui";
 import type { Chain, Collection, NamedQuery } from "../../src/collections/model";
-import { getChainRow, listChainRows, listCollections, loadBundle, putChainRow, saveCollection, saveQuery } from "../../src/collections/store";
+import { listChainRows, listCollections, loadBundle, putChainRow, saveCollection, saveQuery } from "../../src/collections/store";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -75,21 +75,17 @@ function visibleText(): string {
   return [host!.textContent ?? "", ...attrs, document.title].join(" ");
 }
 
-function select(el: HTMLSelectElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(el, value);
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-}
 function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-test("left pane sections are Items, Collections, Workflows and History, one open at a time", async () => {
+test("left pane sections are Schema, Collections, Workflows and History, one open at a time", async () => {
   await openConnection();
-  expect(all(".psec-head").map((b) => b.textContent?.trim())).toEqual(["Items", "Collections", "Workflows", "History"]);
+  expect(all(".psec-head").map((b) => b.textContent?.trim())).toEqual(["Schema", "Collections", "Workflows", "History"]);
   const expanded = () => all(".psec-head").filter((b) => b.getAttribute("aria-expanded") === "true").map((b) => b.textContent?.trim());
-  expect(expanded()).toEqual(["Items"]);
+  expect(expanded()).toEqual(["Schema"]);
   await click(byText(".psec-head", "Collections"));
   expect(expanded()).toEqual(["Collections"]);
   expect(all(".psec-body").length).toBe(1);
@@ -98,7 +94,7 @@ test("left pane sections are Items, Collections, Workflows and History, one open
   expect(all(".psec-body").length).toBe(0);
 });
 
-test("the Workflows tab lists workflows across collections with their collection tags", async () => {
+test("the Workflows tab lists every workflow, tagged with the collections its named queries come from", async () => {
   await openConnection();
   await click(byText(".psec-head", "Workflows"));
   await until(() => all(".wf-item").length >= 2);
@@ -106,7 +102,6 @@ test("the Workflows tab lists workflows across collections with their collection
   expect(daily.textContent).toContain("3 steps");
   expect(daily.textContent).toContain("failed");
   expect([...daily.querySelectorAll(".wf-tag")].map((t) => t.textContent)).toEqual(["Ad performance", "Finance"]);
-  expect(daily.querySelector(".wf-tag.home")!.textContent).toBe("Ad performance");
   const close = all<HTMLElement>(".wf-item").find((r) => r.textContent?.includes("Month close"))!;
   expect(close.textContent).toContain("1 step");
   expect(close.textContent).toContain("not run yet");
@@ -122,7 +117,7 @@ test("the Workflows tab lists workflows across collections with their collection
   expect(visibleText()).not.toMatch(/chain/i);
 });
 
-test("New workflow lets you pick the collection and opens the workflow at #workflow/<id>", async () => {
+test("New workflow asks only for a name and opens the workflow at #workflow/<id>", async () => {
   const opened: string[] = [];
   vi.spyOn(window, "open").mockImplementation((url) => {
     opened.push(String(url));
@@ -130,38 +125,35 @@ test("New workflow lets you pick the collection and opens the workflow at #workf
   });
   await openConnection();
   await click(byText(".psec-head", "Workflows"));
-  await click($("button[aria-label='New workflow']"));
-  await until(() => !!$(".modal select[aria-label='Collection']"));
+  await click($("button[aria-label='Add workflow']"));
+  expect(all(".menu [role=menuitem]").map((b) => b.firstChild?.textContent)).toEqual(["New workflow", "Import from file…"]);
+  await click(all(".menu [role=menuitem]")[0]);
+  await until(() => !!$(".modal input[aria-label='Workflow name']"));
+  expect($(".modal select")).toBeNull();
   expect(visibleText()).not.toMatch(/chain/i);
   await act(async () => type($<HTMLInputElement>(".modal input[aria-label='Workflow name']")!, "Weekly close"));
-  const pick = $<HTMLSelectElement>(".modal select[aria-label='Collection']")!;
-  const fin = [...pick.options].find((o) => o.textContent === "Finance")!;
-  await act(async () => select(pick, fin.value));
   await click(byText(".modal .btn", "Create"));
   await until(() => opened.length === 1);
 
   const created = (await listChainRows()).find((c) => c.name === "Weekly close")!;
-  expect(created.collectionId).toBe("col_fin");
+  expect(created.collectionId).toBeUndefined();
   expect(opened[0]).toMatch(new RegExp(`#workflow/${created.id}$`));
 });
 
-test("the workflow view says Workflow, links to its collection, and can change it", async () => {
-  await mount(
-    <App />,
-    "#workflow/ch_daily",
-  );
-  await until(() => !!$("input[aria-label='Workflow name']") && !!$(".wf-home .wf-tag.home"));
+test("the workflow view has no collection, and its query steps can pick named queries from every collection", async () => {
+  await mount(<App />, "#workflow/ch_daily");
+  await until(() => !!$("input[aria-label='Workflow name']"));
   await until(() => all(".chain-step").length === 3);
   expect($(".chain-top .wf-label")!.textContent).toBe("Workflow");
-  expect($(".wf-home .wf-tag.home")!.textContent).toBe("Ad performance");
-  await click(byText(".btn", "Variables"));
+  expect($(".wf-home")).toBeNull();
+  expect($("select[aria-label='Change collection']")).toBeNull();
+  const pick = all<HTMLSelectElement>(".chain-step select")[0]!;
+  await until(() => [...pick.options].length > 2);
+  expect([...pick.options].map((o) => o.textContent)).toEqual(expect.arrayContaining(["Ad performance/top_ads", "Finance/revenue"]));
+  // Workflow variables are always shown above the steps; there is no Variables toggle.
+  expect(visibleText()).toContain("Workflow variables");
+  expect(byText(".chain-top .btn", "Variables")).toBeUndefined();
   expect(visibleText()).not.toMatch(/chain/i);
-
-  const change = $<HTMLSelectElement>("select[aria-label='Change collection']")!;
-  await act(async () => select(change, "col_fin"));
-  await until(() => $(".wf-home .wf-tag.home")?.textContent === "Finance");
-  await wait(500);
-  expect((await getChainRow("ch_daily"))!.collectionId).toBe("col_fin");
 });
 
 test("the old #chain/<id> link opens the same workflow", async () => {
@@ -224,4 +216,78 @@ test("Run all in a query tab shows one result tab per statement and stops at the
   await click(tabs[1]);
   await until(() => all(".vgrid .r").length > 0);
   expect($(".center .err")).toBeNull();
+});
+
+test("Set variables shows each simple assignment as Take / column / from step pickers and how to use it", async () => {
+  const chain = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/chains/set_vars_lookup.json"), "utf8"));
+  await putChainRow(chain);
+  await mount(<App />, "#workflow/ch_vars");
+  await until(() => all(".cs-var").length === 6);
+  const rows = all<HTMLElement>(".cs-var");
+  const take = (r: HTMLElement) => r.querySelector<HTMLSelectElement>("select[aria-label='Take']")!.value;
+  expect(rows.map(take)).toEqual(["column", "first", "max", "count", "__expr", "__expr"]);
+  expect(rows[0]!.querySelector<HTMLSelectElement>("select[aria-label='Step']")!.value).toBe("top_ads");
+  expect(rows[0]!.textContent).toContain("{{ top_ad_ids | sql_list }}");
+  expect(rows[1]!.textContent).toContain("{{ best | sql }}");
+  expect(rows[4]!.querySelector<HTMLInputElement>("input[aria-label='Expression']")!.value).toBe('"top " + n');
+  expect(all(".chain-add .btn").map((b) => b.textContent?.trim())).toEqual(["Query", "Transform: DuckDB", "Transform: JavaScript", "Set variables", "Export", "Assert"]);
+});
+
+async function importFile(name: string) {
+  const text = readFileSync(resolve(__dirname, "../fixtures/workflows", name), "utf8");
+  const real = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation((tag: string, o?: ElementCreationOptions) => {
+    const el = real(tag, o);
+    if (tag === "input") {
+      el.click = () => {
+        Object.defineProperty(el, "files", { value: [new File([text], name, { type: "application/json" })] });
+        (el as HTMLInputElement).onchange?.(new Event("change"));
+      };
+    }
+    return el;
+  });
+  await click($("button[aria-label='Add workflow']"));
+  await click(all(".menu [role=menuitem]").find((b) => b.textContent?.startsWith("Import from file")));
+  vi.mocked(document.createElement).mockRestore();
+}
+
+test("importing a file with the name of an existing workflow asks before replacing it", async () => {
+  vi.spyOn(window, "open").mockImplementation(() => null);
+  await openConnection();
+  await click(byText(".psec-head", "Workflows"));
+  await until(() => all(".wf-item").length >= 2);
+  const before = (await listChainRows()).find((c) => c.name === "Month close")!;
+  await importFile("import_compare.dbui-workflow.json");
+  await until(() => !!$(".modal .wf-imp-warn"));
+  expect($(".modal h3")!.textContent).toBe('Import workflow "Month close"');
+  expect(all(".wf-imp-steps li").map((l) => l.querySelector(".mono")!.textContent)).toEqual(["bq", "pg", "diff", "has_rows"]);
+  expect(all<HTMLSelectElement>(".wf-imp-conn select").map((s) => s.getAttribute("aria-label"))).toEqual(["Connection for warehouse", "Connection for app"]);
+
+  // Replace asks first; Back returns without touching the workflow.
+  await click(byText(".modal .btn", "Replace existing…"));
+  expect($(".modal h3")!.textContent).toBe('Replace "Month close"?');
+  await click(byText(".modal .btn", "Back"));
+  expect((await listChainRows()).find((c) => c.id === before.id)!.steps.length).toBe(before.steps.length);
+
+  await click(byText(".modal .btn", "Replace existing…"));
+  await click(byText(".modal .btn", "Replace"));
+  await until(() => !$(".modal"));
+  const rows = (await listChainRows()).filter((c) => c.name.startsWith("Month close"));
+  expect(rows.map((c) => c.id)).toEqual([before.id]);
+  expect(rows[0]!.steps.map((s) => s.name)).toEqual(["bq", "pg", "diff", "has_rows"]);
+  // Put the fixture workflow back for the other tests.
+  await putChainRow(before);
+});
+
+test("Keep both imports the file under a new name", async () => {
+  vi.spyOn(window, "open").mockImplementation(() => null);
+  await openConnection();
+  await click(byText(".psec-head", "Workflows"));
+  await until(() => all(".wf-item").length >= 2);
+  await importFile("import_compare.dbui-workflow.json");
+  await until(() => !!byText(".modal .btn", "Keep both"));
+  await click(byText(".modal .btn", "Keep both"));
+  await until(() => !$(".modal"));
+  const names = (await listChainRows()).map((c) => c.name);
+  expect(names).toEqual(expect.arrayContaining(["Month close", "Month close 2"]));
 });

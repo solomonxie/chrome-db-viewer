@@ -375,7 +375,7 @@ export function QueryView(props: {
           </button>
           {ctx.caps.costEstimate && (
             <span className="muted">
-              {estErr ? <span style={{ color: "var(--del-fg)" }}>{estErr}</span> : estimate ? <>Will scan <b style={{ color: overLimit ? "var(--env-stage)" : "var(--fg)" }}>{fmtBytes(estimate.bytes)}</b>{estimate.usd !== undefined && ` · ~$${estimate.usd.toFixed(2)}`}</> : "Estimating…"}
+              {estErr ? <span style={{ color: "var(--del-fg)" }}>{estErr}</span> : estimate ? <>Will scan <b style={{ color: overLimit ? "var(--warn)" : "var(--fg)" }}>{fmtBytes(estimate.bytes)}</b>{estimate.usd !== undefined && ` · ~$${estimate.usd.toFixed(2)}`}</> : "Estimating…"}
             </span>
           )}
           <span className="spacer" />

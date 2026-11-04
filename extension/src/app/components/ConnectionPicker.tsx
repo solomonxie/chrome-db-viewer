@@ -1,5 +1,5 @@
-// Searchable connection dropdown (ARIA combobox + listbox). Home uses it as the main picker;
-// the connection page uses a compact one in its top bar as a switcher. Opening is the
+// Searchable connection dropdown (ARIA combobox + listbox). The connection page uses a
+// compact one in its top bar as a switcher. Opening is the
 // caller's job (onOpen); this component only selects, filters and reports.
 
 import {

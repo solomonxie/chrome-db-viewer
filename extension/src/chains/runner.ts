@@ -28,7 +28,7 @@ export const DEFAULT_PREVIEW_ROWS = 200;
 /** BigQuery's default cost guard (10 GiB), used when a connection doesn't set one. */
 export const DEFAULT_MAX_BYTES = 10 * 1024 ** 3;
 
-export const CROSS_CONNECTION_ERROR = "use a Transform: SQL step to combine results from different connections";
+export const CROSS_CONNECTION_ERROR = "use a Transform: DuckDB step to combine results from different connections";
 
 export type StepStatus = "queued" | "running" | "done" | "failed" | "skipped";
 
@@ -188,7 +188,7 @@ function namedQuery(ctx: Pick<Ctx, "lib">, step: ChainStep): NamedQuery | undefi
 
 function stepConnectionId(ctx: Pick<Ctx, "lib">, step: ChainStep): string | undefined {
   const q = step.kind === "query" && step.queryId ? ctx.lib.query(step.queryId) : undefined;
-  return step.connectionId || q?.connectionId || ctx.lib.defaultConnectionId;
+  return step.connectionId || q?.connectionId || (q && ctx.lib.connectionFor?.(q)) || ctx.lib.defaultConnectionId;
 }
 
 function stepTemplateText(ctx: Pick<Ctx, "lib">, step: ChainStep): string {
@@ -247,7 +247,7 @@ function checkValueCap(name: string, v: unknown, cap: number): void {
   if (Array.isArray(v) && v.length > cap) {
     throw new StepError(
       `"${name}" holds ${v.length.toLocaleString("en-US")} values, over the limit of ${cap.toLocaleString("en-US")}. ` +
-        `Pass the table with a Transform: SQL step instead.`,
+        `Pass the table with a Transform: DuckDB step instead.`,
     );
   }
 }
@@ -292,7 +292,9 @@ async function renderQuery(ctx: Ctx, step: ChainStep, vars: Record<string, unkno
 
   let res: RenderResult;
   try {
-    res = ctx.deps.render(template, { dialect, vars: { ...varDefaults(q), ...vars }, library: ctx.lib.templates, ref });
+    // A named query sees its own collection's variables under the workflow's.
+    const collVars = q ? (ctx.lib.varsFor?.(q) ?? {}) : {};
+    res = ctx.deps.render(template, { dialect, vars: { ...varDefaults(q), ...collVars, ...vars }, library: ctx.lib.templates, ref });
   } catch (e) {
     if (e instanceof StepError) throw e;
     const msg = e instanceof Error ? e.message : String(e);
@@ -653,7 +655,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
     varChanges: c.varChanges,
   });
   const keyFor = (step: ChainStep, parts: Record<string, unknown>) =>
-    hashValue({ def: { ...step, id: undefined }, inputs: graph.inputs.get(step.name)!.map((i) => [i, hashes.get(i) ?? ""]), ...parts });
+    hashValue({ def: { ...step, id: undefined, description: undefined }, inputs: graph.inputs.get(step.name)!.map((i) => [i, hashes.get(i) ?? ""]), ...parts });
   const lookup = (step: ChainStep, key: string): CacheEntry | undefined => {
     if (force.has(step.name)) return undefined;
     const c = cache.get(step.name);
@@ -694,7 +696,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
         const logs: string[] = [];
         const tests: { name: string; passed: boolean }[] = [];
         if (scripts.pre.length) {
-          const pre = await deps.runPreScripts(scripts.pre, vars, ctx.lib.env);
+          const pre = await deps.runPreScripts(scripts.pre, vars, q ? (ctx.lib.envFor?.(q) ?? ctx.lib.env) : ctx.lib.env);
           logs.push(...pre.logs);
           tests.push(...pre.tests);
           if (!pre.ok) throw new StepError(`Pre-run script failed: ${pre.error ?? "error"}`, { logs, tests });
@@ -759,8 +761,8 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
         let postChanges: Record<string, unknown> = {};
         if (scripts.post.length) {
           const post = setupTables.length
-            ? await deps.runPostScripts(scripts.post, runVars, ctx.lib.env, table, [...setupTables, table])
-            : await deps.runPostScripts(scripts.post, runVars, ctx.lib.env, table);
+            ? await deps.runPostScripts(scripts.post, runVars, q ? (ctx.lib.envFor?.(q) ?? ctx.lib.env) : ctx.lib.env, table, [...setupTables, table])
+            : await deps.runPostScripts(scripts.post, runVars, q ? (ctx.lib.envFor?.(q) ?? ctx.lib.env) : ctx.lib.env, table);
           logs.push(...post.logs);
           tests.push(...post.tests);
           if (!post.ok) throw new StepError(`Post-run script failed: ${post.error ?? "error"}`, { logs, tests, renderedSql: r.sql, ...preview(table) });

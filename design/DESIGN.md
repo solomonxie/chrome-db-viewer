@@ -297,7 +297,8 @@ Edits stay local until you commit, as in TablePlus.
 
 > Browser shortcut clash: `⌘S`, `⌘P`, `⌘R` and `⌘K` normally belong to Chrome. Inside
 > `app.html` we call `preventDefault()` on them, but `⌘T`/`⌘W`/`⌘N` can't be taken from
-> the browser. New query tab is `⌥T`, close tab `⌥W`.
+> the browser. New query tab is `⌥T`, close tab `⌥W`. `⌘F` stays Chrome's find on every
+> page; only views with their own filter (a table, a file sheet) take it for that filter.
 
 ### 3.7 Secrets
 
@@ -394,8 +395,8 @@ Open a CSV, TSV, JSONL/NDJSON, JSON array or Parquet file (also `.gz`) and get a
 sheet you drive from the keyboard. It's built on DuckDB, so a 5 GB CSV doesn't need to
 fit in memory.
 
-**Opening:** drag a file onto dbui, use **Open file** on Home or in the palette, or pick from
-recent files. Dropping a data file onto any Chrome tab opens it here too, read straight from
+**Opening:** drag a file onto dbui, use **Open file** in the toolbar popup or the palette (`⌘O`), or pick from
+recent files on the Open file page. Dropping a data file onto any Chrome tab opens it here too, read straight from
 where it is (`file://`, needs **Allow access to file URLs**). The copy Chrome would otherwise
 save to Downloads is cancelled before it's written. Recent files are kept as File System Access handles in IndexedDB; Chrome
 asks once per session to read them again.
@@ -431,10 +432,16 @@ No other scheme becomes a link. Double-clicking a column's header edge fits the 
 longest value (up to 900px). The top bar wraps its buttons onto a second line when the window
 is narrow.
 
-**Saving:** edits stay in the sheet until `⌘S`, which writes the file back in the same
-format (`COPY … TO`) through the file handle. **Save as** converts between CSV, JSONL and
-Parquet. Rewriting a CSV can change its quoting, so the first save to an existing file asks
-before overwriting.
+**Saving:** the top bar has a **Save** button, `⌘S` / `Ctrl+S`, with a ▾ next to it (`⌘⇧S`)
+for **Save as** CSV, TSV, Parquet, JSON Lines or a JSON array. DuckDB writes the bytes
+(`COPY … TO`, `src/app/file/saveFile.ts`), so this works for every source: a picked file, a URL,
+and a captured download, including a page's `blob:` export.
+- **What gets saved:** on the original sheet, every row of the file, under the file's own name
+  and format (a `.gz`/`.zst` file saves as plain CSV). On a filtered or SQL sheet, that
+  sheet's rows, named `<file> (<sheet>).<ext>`.
+- **Where:** Chrome's save dialog when it has one, otherwise a normal download. Cancelling saves
+  nothing.
+- Demo data can't be saved.
 
 **Keymap:** dbui keys by default; a **VisiData keys** setting turns on `hjkl` movement and
 the single-letter commands above.
@@ -458,7 +465,7 @@ warning; Chrome evaluates the rule itself and dbui runs no content scripts.
 |---|---|
 | You click a link or type a URL ending in a data extension | A redirect rule sends the tab to `app.html?src=<url>`, and the viewer loads the file |
 | Opening a link turns into a download (a signed URL, a console "Download" that redirects, `Content-Disposition: attachment`, no extension in the URL) | `downloads.onDeterminingFilename` recognises the file name or MIME type. Because a tab navigated to the URL, dbui can fetch it again, so it cancels the download before anything is saved and opens the sheet directly, with no prompt |
-| A page saves a file itself (an Export button that builds a `blob:`, `<a download>`, *Save link as…*) | `downloads.onCreated` recognises the file name or MIME type and shows an **Open in dbui** prompt; the file is saved as usual |
+| A page saves a file itself (an Export button that builds a `blob:`, `<a download>`, *Save link as…*) | `downloads.onCreated` recognises the file name or MIME type and shows an **Open in dbui** prompt; the file is saved as usual. A JavaScript export (file-saver's `saveAs`) has no name yet in onCreated, and is often `text/plain`, so the check runs again in `onDeterminingFilename` with the suggested name (`orders-chart.csv`) |
 | A local file in Chrome (`file:///…/data.csv`) | Same redirect rule. Needs **Allow access to file URLs** turned on for dbui on `chrome://extensions`; the settings page links there and says so |
 | Double-clicking a file in Finder | Not possible. macOS can't make an extension the app for a file type. Drag it onto the dbui tab or use `⌘O` |
 
@@ -526,8 +533,8 @@ when the master switch is off or when site access is missing):
   the same way they would in the tab.
 - Over ~1 GB for a remote CSV/JSONL, the viewer warns before reading it all, and offers
   **Download instead** or, with the runner, **Open with native DuckDB**.
-- The sheet has the full file-sheet features (§3.11). Edits can't be saved back to a URL,
-  so `⌘S` becomes **Save as** to a local file.
+- The sheet has the full file-sheet features (§3.11). Edits can't be saved back to a URL;
+  `⌘S` saves the sheet as a local file instead.
 - `.duckdb` / `.sqlite` links are downloaded into browser storage (OPFS) and opened
   read-only as a connection tab.
 
@@ -585,7 +592,7 @@ SQL it will send, and only then runs it.
 
 Collections hold only queries: folders, named queries, and the variables, environments and
 scripts those queries use. **Collections and Workflows (§3.15) are separate tabs** in the
-left pane (Items · Collections · Workflows · History): a collection is a library of reusable
+left pane (Schema · Collections · Workflows · History): a collection is a library of reusable
 queries, and a workflow is a pipeline that uses them. The old **Saved** tab is gone: ⌘S in
 a plain query tab saves into a collection (§ below), and queries saved before this change
 were moved into a **Saved queries** collection once, on first start.
@@ -716,34 +723,34 @@ small dbt project inside dbui.
 > Naming note: the code calls workflows **chains** (`src/chains/`, the `Chain` type, the
 > `chains` IndexedDB store). The UI always says "workflow".
 
-**Where they live.** Workflows have their own **Workflows** tab in the left pane, next to
-Collections, not inside a collection. It's a flat list of every workflow with a filter, **New
-workflow**, rename, duplicate and delete. Each row shows the step count, the last run (passed,
-failed, stopped or blocked, and when), and small tags for the collection(s) its query steps
-use. A workflow opens at `#workflow/<id>` (old `#chain/<id>` links still work).
+**Where they live.** Workflows and collections are separate things. Workflows have their own
+**Workflows** tab in the left pane, next to Collections. It's a flat list of every workflow with a
+filter, **New workflow** (asks only for a name), rename, duplicate and delete. Each row shows the
+step count, the last run (passed, failed, stopped or blocked, and when), and small tags for the
+collection(s) its named queries come from. A workflow opens at `#workflow/<id>` (old
+`#chain/<id>` links still work).
 
-**Home collection.** Every workflow has one home collection, whose variables, environments and
-named queries its steps use. **New workflow** asks for it, defaulting to the only collection
-or to a **Workflows** collection created on demand. It shows as a tag, never as nesting. In
-the workflow view the header reads **Workflow**, the tag opens that collection's settings, and
-**Change…** picks another collection. Deleting a collection keeps its workflows; their view
-then asks for a new home.
+**Named queries.** A Query step can run its own SQL or a named query from **any** collection
+(shown as `Collection/folder/name`). A named query brings its own collection's variables, active
+environment, default connection and pre/post scripts; the workflow's own variables override them.
+Collection exports don't include workflows (an older export that has them imports them as
+standalone workflows). Older workflow rows still carry an unused `collectionId`.
 
 **Step kinds**
 
 | Kind | What it does | Output |
 |---|---|---|
 | **Query** | Runs a named query (or inline SQL) on a connection, with workflow variables | A result table |
-| **Transform: SQL** | Runs SQL over earlier steps' results **locally in DuckDB-WASM**, e.g. `SELECT … FROM {{ ref("sales") }} JOIN {{ ref("ads") }}` even when `sales` came from BigQuery and `ads` from Postgres | A result table |
-| **Transform: script** | Runs a JavaScript function on earlier results, in a sandboxed Web Worker: `(inputs, vars) => rows \| { rows, vars }` | A result table and/or new variables |
-| **Set variables** | Picks values out of a result for later steps, e.g. `top_ad_ids = column "ad_hash" of step "top_ads"`, `max_date = max(localdate)` | Variables |
-| **Export** | Writes a result to a file (CSV, JSONL, Parquet) through the file picker | A file |
+| **Transform: DuckDB** | Runs DuckDB SQL over earlier steps' results **on this machine (DuckDB-WASM)**, e.g. `SELECT … FROM {{ ref("sales") }} JOIN {{ ref("ads") }}` even when `sales` came from BigQuery and `ads` from Postgres | A result table |
+| **Transform: JavaScript** | Runs a JavaScript function on earlier results, in a sandboxed Web Worker: `(inputs, vars) => rows \| { rows, vars }` | A result table and/or new variables |
+| **Set variables** | Takes values out of an earlier result for later queries. Each row reads as a sentence: `ids` = *All values of* `ad_hash` *from* `top_ads` (also *Unique values*, *First / Largest / Smallest value*, *Sum*, *Row count*, or a custom expression). Column pickers fill in after the step has run once. Under each row: how to use it, `{{ ids \| sql_list }}` for lists, `{{ best \| sql }}` for one value | Variables |
+| **Export** | Saves a step's result as CSV, JSON Lines or Parquet with DuckDB's `COPY … TO`, on this machine; Chrome asks where to save. Pick a step, or *DuckDB query…* to filter or reshape it first | A file |
 | **Assert** | A check, e.g. "row count > 0" or "no NULL ad_id". Fails the workflow when not met | Pass/fail |
 
 So a **middle step that converts one step's output into the next step's input** is either:
-- **Transform: SQL**, for reshaping, joining, filtering or aggregating with SQL. It runs on
+- **Transform: DuckDB**, for reshaping, joining, filtering or aggregating with SQL. It runs on
   this machine in DuckDB, so it works across different databases and costs nothing on the warehouse;
-- **Transform: script**, for logic that's awkward in SQL (parsing JSON, calling a formula,
+- **Transform: JavaScript**, for logic that's awkward in SQL (parsing JSON, calling a formula,
   building a list);
 - **Set variables**, when the next step needs *values* rather than a table (a list of IDs, a
   date). For example, step 1 finds yesterday's top 50 ads in BigQuery, a Set variables step
@@ -783,6 +790,26 @@ and workflow variables. MV3 forbids `eval`, so scripts run in a sandboxed extens
 **Not in v1:** schedules, incremental models, writing results back to a warehouse table
 (`materialized: table` in dbt terms), and Python steps. Python could come later via Pyodide in
 the same sandbox.
+
+**Workflow files.** A workflow can be saved as and imported from a `.dbui-workflow.json` file
+(`src/chains/workflowFile.ts`, format `"dbui-workflow"` version 1). This lets a workflow written
+elsewhere, by hand or by Claude through the `db-workflow` skill, be run here.
+- **What the file holds:** the name, a description, workflow variables (secret values are left
+  out), and the steps.
+- **Connections:** a step names its connection by an *alias*. The file lists each alias with its
+  engine and a hint, such as a host or project name.
+- **Export:** "Export file" in the workflow view, or "Export file…" in a row's menu, writes the
+  aliases named after the connections. A named query step also carries its path and SQL.
+- **Import:**
+  - Where: the Workflows tab's **+** button opens a menu with **New workflow** and **Import from file…**. An upload arrow next to it read as Export or Share.
+  - Checks first: step kinds, listed aliases, refs to steps that exist, and cycles.
+  - The dialog shows the steps and maps each alias to a saved connection of the same engine. It
+    pre-picks the one whose name or settings match the alias and hint words best. With no match,
+    the steps import without a connection.
+  - When a workflow with the same name exists: **Replace existing…** asks for confirmation, then
+    replaces its steps and keeps its id and link. **Keep both** imports under "name 2".
+- **Notes:** a step's `note` becomes its description, shown under the step header. It doesn't
+  affect caching.
 
 ### 3.16 Backup: surviving uninstall
 
@@ -830,8 +857,8 @@ with a blob URL) and **Import…** (file picker → summary such as "12 connecti
   now**, or there was no file yet. The link flag is in `chrome.storage.local`, which uninstall
   clears, so a reinstall starts unlinked and its first edits can't destroy the backup it is
   about to be offered. Settings → Backup says when automatic backup is paused for this reason.
-- **Restore on a fresh install:** when Home loads with no connections, collections or history
-  and the runner has a backup, Home shows **Found a backup from <date>: 12 connections,
+- **Restore on a fresh install:** when Settings loads with no connections, collections or history
+  and the runner has a backup, Settings shows **Found a backup from <date>: 12 connections,
   3 collections… Restore?** with **Restore** / **Not now**. Restore imports in replace mode.
   Never silent, never over existing data.
 - Settings → Backup shows the last automatic backup time and a **Back up now** button.
@@ -845,24 +872,40 @@ The extension is named **Chrome DB Viewer** in Chrome (manifest `name`); the app
 itself dbui. All work happens in full-page tabs; the only other surface is the toolbar popup.
 There's no Chrome side panel.
 
-- **Toolbar icon**: opens a popup (`popup.html`, `src/popup/Popup.tsx`, 380px wide) listing
-  the saved connections. They're grouped and sorted like Home's picker, with a search box
-  focused on open. Clicking a connection (or pressing Enter) opens it in a new tab
-  (`#c_<id>`), records `lastUsedAt` and closes the popup. Its footer has **Open app**, which
-  focuses an app tab already on Home or opens a new one, and **New connection**, which does
-  the same at `#home/new` so Home starts with the engine picker open. Tabs showing a
-  connection or a file are never taken over. Finding the tabs with `tabs.query` on our own
-  extension URL needs no `tabs` permission.
-- **Home** (`app.html#home`), modelled on TablePlus's welcome window:
-  - A search box across the top ("Search for connection…", focused on open, `↑↓` + `Enter` connects).
-  - Connections as a compact list: a round two-letter engine badge (`Pg`, `Ch`, `Bq`, `Du`, `Re`, `Sl`),
-    name, env tag in its colour (`production` in red), and `host : database` underneath.
-    Connections can be put in **groups** (folders) and dragged between them.
-  - **+** opens the **new connection picker**: a grid of engine badges with a search box,
-    arrow keys to move, `Enter` to pick. The backlog engines (MongoDB, Snowflake) appear greyed
-    out with "Coming later". Buttons: Cancel, **Import connection** (paste a URL such as
-    `postgres://user@host:5432/db`, or a TablePlus/DBeaver export), **New group**, **Create**.
-  - A side column with recent files, **Open file**, runner status and Settings.
+- **Toolbar icon**: opens a popup (`popup.html`, `src/popup/Popup.tsx`, 380px wide). It is
+  the only connection list: **there is no Home page.** Connections are grouped (ungrouped
+  first, named groups A–Z, Demo last), each sorted by last use, with a search box focused on
+  open. A row shows the engine badge, name, `host : database`, a read-only tag and the env dot.
+  Clicking a connection (or Enter) opens it in a new tab (`#c_<id>`), records `lastUsedAt` and
+  closes the popup.
+  - There's no search box; `↑↓` + `Enter` work on the list.
+  - Each saved connection's **⋯** opens a small vertical menu under its row (inline, since a
+    floating menu would be clipped by the popup): **Edit**, **Duplicate**, **Copy as ›**, **Move to
+    group** (type or pick; empty ungroups), **Export** (JSON, no secrets) and, after a divider,
+    **Delete** (asks inline). The demo has none.
+  - **Copy as ›** lists what fits the engine. Postgres: connection URL (also *with password* when
+    it's remembered), `psql` command, JDBC URL, `PG*` environment variables. ClickHouse: HTTP URL,
+    `clickhouse client`, `curl`, JDBC. BigQuery: `bq query` command, Google Cloud console link,
+    `gcloud config set project`, `project.dataset`. Redis: URL, `redis-cli`. DuckDB/SQLite: the CLI
+    command. Each row previews the text.
+  - **Duplicate** saves "<name> copy" with a new id and copies its secrets with it (password or
+    token, BigQuery refresh token and key, SSH key: every `c_<id>`/`c_<id>_<what>` ref is renamed
+    and its value copied), so the copy connects without asking. A password typed for one
+    session only lives in the tab it was typed in and can't be copied; the popup says the copy
+    will ask for it.
+  - **New connection** and **Edit** show the engine picker and the form inside the popup (460px
+    wide while open). A file field (DuckDB/SQLite file, a BigQuery key file) can't open a chooser
+    there, since Chrome closes the popup when it loses focus, so it offers **Choose in a tab…**,
+    which continues in `#new/<engine>` or `#edit/<id>`.
+  - Footer: **New connection** and Settings (focuses an open Settings tab, else opens one). No
+    Open file button: data files open passively when Chrome navigates to one (§3.12).
+- **Connection editor** (`app.html#new`, `#new/<engine>`, `#edit/<id>`): a tab holding just the
+  engine picker and connection form, used when a form needs a file chooser. The picker is a grid of engine badges with a search box, arrow keys to move,
+  `Enter` to pick; backlog engines (MongoDB, Snowflake) are greyed out with "Coming later";
+  **Import connection** takes a URL such as `postgres://user@host:5432/db`. **Save & connect**
+  turns the tab into the connection; **Save** or **Cancel** closes it.
+- `app.html` with no route, or one it doesn't know, shows **Settings**. Pages that used to send
+  you Home (a connection that no longer exists, a cancelled password prompt) offer **Close tab**.
 - **App tab** (`chrome-extension://…/app.html#c_8f2`): one tab per open connection or file,
   so Chrome's own tab strip acts as the switcher. Inside the page there's an object tree
   on the left (tables, keys, files). That's part of the page layout, not a Chrome side panel,
@@ -875,7 +918,7 @@ There's no Chrome side panel.
 
 ```
 ┌ [≡][⏻]  [🔒][🗄][SQL]  ┃ PRODUCTION │ PostgreSQL 17.9 : shop-prod : shop : public.orders ┃ [⚠][⟳][⌘K]  [▭][◨] ┐
-├ [Items│Queries│History]─┬ ‹ › ┃          orders          ┃ ◫ ─────────────────────┬ [Details│Assistant] ─┤
+├ [Schema│Queries│History]─┬ ‹ › ┃          orders          ┃ ◫ ─────────────────────┬ [Details│Assistant] ─┤
 │ 🔍 orde            ⊗ ☰ │ ☑ [status ▾][= ▾][ paid        ] [Apply] [−][+]       │ 🔍 Search for field   │
 │ ▸ Functions            │ ☑ [total  ▾][> ▾][ 100         ]         [−][+]       │ id              int8  │
 │ ▾ Tables               │ [Export][SQL] Show:⌘F Insert:⌘I Remove:⌘⌫ [Clear][Apply All ▾] │ 10421         │
@@ -891,8 +934,8 @@ There's no Chrome side panel.
 ```
 
 **Top bar**
-- Left: toggle the left pane, open the connection list (Home), read-only lock, switch database, open a SQL query tab.
-- Centre: a **status capsule in the env colour** (green for local, blue for dev, amber for staging, red for production).
+- Left: toggle the left pane, read-only lock, switch database, open a SQL query tab.
+- Centre: a **status capsule in the env colour** (grey for local, blue for dev, purple for staging, amber for production; red is kept for errors and Delete).
   It reads `ENV │ Engine version : connection : database : schema.table`. Click it to open connection settings.
 - Right: refresh (`⌘R`), command palette (`⌘K`), toggle the bottom panel, toggle the right pane.
   The statement log (every statement dbui ran, with timings) is toggled from a terminal icon at
@@ -904,7 +947,7 @@ There's no Chrome side panel.
   One section is open at a time: its header is a full-width accent bar and its body fills the
   remaining height. The folded ones sit below it, divided by hairlines. Clicking the open
   section folds it.
-  - **Items**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
+  - **Schema**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
   - **Collections**: named queries in collections and folders (§3.14).
   - **Workflows**: multi-step pipelines (§3.15).
   - **History**: every statement you ran, searchable, with time, duration and rows, and a **Save** button per row.
@@ -997,7 +1040,6 @@ There's no Chrome side panel.
 |---|---|
 | Command palette | `⌘K` |
 | Open file | `⌘O` |
-| Go to Home | `⌘⇧H` |
 | Collapse / show the left pane | `⌘\` |
 | Show / hide the Details pane | `⌘⌥R` |
 | Show / hide the filter rows | `⌘F` |
@@ -1109,7 +1151,7 @@ chrome-db-viewer/
 
 | # | Scope | Done when |
 |---|---|---|
-| M0 | MV3 skeleton (Vite + React), full-page app tab with Home, toolbar click opens or focuses it, CSP/COOP/COEP set, CI build | Extension loads unpacked and opens the app tab |
+| M0 | MV3 skeleton (Vite + React), full-page app tab, toolbar popup, CSP/COOP/COEP set, CI build | Extension loads unpacked and opens the app tab |
 | M1 | Grid + **DuckDB-WASM** + **file sheets** (CSV/JSONL/Parquet open, sort, filter, summary, sheet stack) | Open a 5 GB CSV and get its column summary without the tab running out of memory |
 | M1b | **Browser preview** (§3.12): settings with per-extension checkboxes + permission request, redirect rule, `?src=` loading with Parquet range reads, download prompt, `file://` support; image and video downloads open in the media viewer | Click a `.parquet` link on S3 and see the sheet in about a second; turn the setting off and the same link downloads |
 | M2 | **SQLite** and **DuckDB** files, SQL editor (CodeMirror, autocomplete, history), cancel; file sheet editing and save | Query across a `.duckdb` file and two CSVs in one statement |
@@ -1122,7 +1164,7 @@ chrome-db-viewer/
 | M9 | Export (runner writes files), runner update flow, polish, Web Store listing, OAuth verification | Public beta |
 | M10 | **Collections** (§3.14): collections, folders, environments, Jinja templates with `sql`/`ident`/`sql_list` filters, `include`, parameter detection and panel, Rendered tab, History → named query with literal-to-variable, JSON and folder export | Save a History query as a named query with `start_date` turned into a variable, run it in two environments, and see the rendered SQL each time |
 | M11 | **Workflows** (§3.15): Query, Transform SQL, Set variables, Export and Assert steps, `ref()` graph, local DuckDB step tables, CTE inlining on the same connection, step cache, combined dry run | A 3-step workflow: BigQuery top ads → Set variables → Postgres lookup by those IDs, re-running only the last step after an edit |
-| M12 | **Scripts**: pre-run and post-run scripts on queries, folders and collections (the `db` API, Tests and Console tabs); workflow **Transform: script** steps; all in the sandboxed page. Collection import/export as a git-friendly folder | A post-run script asserts a row count and sets `top_ids`, the next query uses them, and a script step reshapes JSON into rows |
+| M12 | **Scripts**: pre-run and post-run scripts on queries, folders and collections (the `db` API, Tests and Console tabs); workflow **Transform: JavaScript** steps; all in the sandboxed page. Collection import/export as a git-friendly folder | A post-run script asserts a row count and sets `top_ids`, the next query uses them, and a script step reshapes JSON into rows |
 
 Everything before M5 needs no runner, so the extension is useful from the first release.
 

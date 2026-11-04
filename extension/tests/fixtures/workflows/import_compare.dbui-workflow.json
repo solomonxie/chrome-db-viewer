@@ -1,0 +1,17 @@
+{
+  "format": "dbui-workflow",
+  "version": 1,
+  "name": "Month close",
+  "description": "Compare BigQuery clients with Postgres dashboards.",
+  "connections": {
+    "warehouse": { "driver": "bigquery", "hint": "analytics" },
+    "app": { "driver": "postgres", "hint": "orders" }
+  },
+  "vars": [{ "name": "partner", "value": "ACME_ADS" }],
+  "steps": [
+    { "name": "bq", "kind": "query", "connection": "warehouse", "sql": "SELECT client_id FROM perms WHERE partner_name = {{ partner | sql }}" },
+    { "name": "pg", "kind": "query", "connection": "app", "sql": "SELECT dashboard_id FROM partner_dashboard" },
+    { "name": "diff", "kind": "transform-sql", "sql": "SELECT * FROM {{ ref(\"bq\") }} b FULL JOIN {{ ref(\"pg\") }} p ON b.client_id = p.dashboard_id" },
+    { "name": "has_rows", "kind": "assert", "condition": "count(\"diff\") >= 0" }
+  ]
+}

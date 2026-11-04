@@ -68,3 +68,26 @@ export async function forgetSecret(ref: string): Promise<void> {
 }
 
 export const sessionSecrets = memory;
+
+/**
+ * Copies a secret to a new ref in every store that holds it: this page's memory, and the
+ * browser store. Returns whether anything was copied.
+ */
+export async function copySecret(from: string, to: string): Promise<boolean> {
+  let copied = false;
+  const m = await memory.get(from);
+  if (m !== null) {
+    await memory.set(to, m);
+    copied = true;
+  }
+  try {
+    const l = await local.get(from);
+    if (l !== null) {
+      await local.set(to, l);
+      copied = true;
+    }
+  } catch {
+    /* not in an extension context */
+  }
+  return copied;
+}

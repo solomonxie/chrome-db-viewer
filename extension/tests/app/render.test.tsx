@@ -45,14 +45,11 @@ async function until(fn: () => boolean, timeout = 3000) {
   }
 }
 
-test("home picks the demo connection in the dropdown, labelled as sample data", async () => {
-  await render("#home");
+test("#new opens the engine picker", async () => {
+  await render("#new");
   await wait(20);
-  const box = host!.querySelector<HTMLInputElement>("input[role=combobox][aria-label='Connection']");
-  expect(box).not.toBeNull();
-  expect(box!.value).toBe("Demo database");
-  expect(host!.textContent).toContain("Sample data in memory");
-  expect(host!.textContent).toContain("No connections yet");
+  expect(host!.querySelector(".modal h3")?.textContent).toBe("New connection");
+  expect(document.title).toBe("New connection");
 });
 
 test("demo connection tab connects, shows the tree and opens a table", async () => {
@@ -79,7 +76,7 @@ test("settings page renders the preview groups", async () => {
 });
 
 test("bigquery form picks the sign-in method from a dropdown and shows its hint", async () => {
-  const { ConnectionForm } = await import("../../src/app/home/NewConnection");
+  const { ConnectionForm } = await import("../../src/app/conn/NewConnection");
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -103,7 +100,7 @@ test("bigquery form picks the sign-in method from a dropdown and shows its hint"
 });
 
 test("connection form explains the chosen method and updates when it changes", async () => {
-  const { ConnectionForm } = await import("../../src/app/home/NewConnection");
+  const { ConnectionForm } = await import("../../src/app/conn/NewConnection");
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);

@@ -87,11 +87,14 @@ export interface ChainStep {
   condition?: string;
   /** Step names this step reads, beyond those found by ref() in its SQL. */
   dependsOn?: string[];
+  /** What the step is for, shown under its header (workflow files call it "note"). */
+  description?: string;
 }
 
 export interface Chain {
   id: string;
-  collectionId: string;
+  /** Unused: workflows used to belong to a collection. Older rows still carry it. */
+  collectionId?: string;
   name: string;
   description?: string;
   steps: ChainStep[];

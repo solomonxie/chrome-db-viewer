@@ -3,7 +3,7 @@
 // About 5 s after the last IndexedDB write (db.onStoreChange) or change to a backed-up setting,
 // the app sends exportAll() to the runner (`backup.write`), which keeps it in
 // ~/Library/Application Support/dbui/backup.json. On a fresh install with an empty database the
-// Home page offers to restore it (checkForRestore + RestoreBanner). Without the runner nothing
+// Settings page offers to restore it (checkForRestore + RestoreBanner). Without the runner nothing
 // happens: "not installed" and "older runner" errors are swallowed.
 //
 // Safety: a fresh profile must never overwrite a backup it hasn't seen, or the very thing the
@@ -286,7 +286,7 @@ export interface RestoreOffer {
 }
 
 /**
- * What the Home banner offers: a runner backup, but only when this profile has no connections,
+ * What the Settings banner offers: a runner backup, but only when this profile has no connections,
  * collections or history. Null when there's data, no runner, no backup or an unreadable one.
  */
 export async function checkForRestore(deps: { io?: Pick<BackupIO, "getAll">; transport?: BackupTransport } = {}): Promise<RestoreOffer | null> {

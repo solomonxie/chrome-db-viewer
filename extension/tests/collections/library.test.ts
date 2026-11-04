@@ -7,7 +7,7 @@ import type { Chain, Collection, NamedQuery } from "../../src/collections/model"
 import { createCollection, createFolder, createQuery, folderPath, listCollections, loadBundle, moveFolder, moveQuery, putChainRow, saveCollection, saveQuery } from "../../src/collections/store";
 import { migrateSavedQueries } from "../../src/app/collections/migrateSaved";
 import { folderOptions, guessQueryName } from "../../src/app/collections/SaveAsNamedQuery";
-import { allChains, collectionsUsed, createChain, defaultWorkflowCollection, duplicateChain } from "../../src/app/chains/chainStore";
+import { allChains, collectionsUsed, createChain, duplicateChain } from "../../src/app/chains/chainStore";
 import type { SavedQuery } from "../../src/app/store/db";
 
 const fixture = (p: string) => readFileSync(resolve(__dirname, "../fixtures", p), "utf8");
@@ -66,7 +66,7 @@ test("a saved query's name defaults to its first table and the date, else the st
   expect(guessQueryName("SELECT now() AS ts, 1 + 1 AS two, 'something long here'", day)).toBe("SELECT now() AS ts, 1 + 1 AS two, 'somet");
 });
 
-test("workflows list across collections, with the collections their query steps use", async () => {
+test("workflows are listed on their own, tagged with the collections their named queries come from", async () => {
   const lib = JSON.parse(fixture("workflows/library.json")) as { collections: Collection[]; queries: NamedQuery[]; chains: Chain[] };
   for (const c of lib.collections) await saveCollection(c);
   for (const q of lib.queries) await saveQuery(q);
@@ -78,17 +78,13 @@ test("workflows list across collections, with the collections their query steps 
   expect(collectionsUsed(daily, lib.queries)).toEqual(["col_ads", "col_fin"]);
 
   const copy = await duplicateChain(daily);
-  expect(copy).toMatchObject({ name: "Daily ad report copy", collectionId: "col_ads" });
+  expect(copy).toMatchObject({ name: "Daily ad report copy" });
   expect(copy.id).not.toBe(daily.id);
   expect(copy.lastRun).toBeUndefined();
 });
 
-test("New workflow defaults to the only collection, else a Workflows collection made once", async () => {
-  const only = { id: "col_only", name: "Only", vars: [], environments: [], createdAt: 0, updatedAt: 0 };
-  expect((await defaultWorkflowCollection([only])).id).toBe("col_only");
-  const made = await defaultWorkflowCollection();
-  expect(made.name).toBe("Workflows");
-  expect((await defaultWorkflowCollection()).id).toBe(made.id);
-  const w = await createChain(made.id);
-  expect(w).toMatchObject({ name: "New workflow", collectionId: made.id, steps: [] });
+test("a new workflow belongs to no collection", async () => {
+  const w = await createChain("Compare PG and BQ");
+  expect(w).toMatchObject({ name: "Compare PG and BQ", steps: [] });
+  expect(w.collectionId).toBeUndefined();
 });
