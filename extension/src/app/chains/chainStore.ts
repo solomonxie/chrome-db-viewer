@@ -2,7 +2,7 @@
 // collections are separate: a workflow's query steps can use named queries from any collection.
 
 import type { Chain, ChainStep, ChainStepKind, NamedQuery } from "../../collections/model";
-import { deleteChainRow, getChainRow, listChainRows, putChainRow, uniqueName } from "../../collections/store";
+import { getChainRow, trashChain, listChainRows, putChainRow, uniqueName } from "../../collections/store";
 import { uid } from "../store/db";
 
 export const STEP_KINDS: { kind: ChainStepKind; label: string; hint: string }[] = [
@@ -17,7 +17,32 @@ export const STEP_KINDS: { kind: ChainStepKind; label: string; hint: string }[] 
 export const kindLabel = (k: ChainStepKind) => STEP_KINDS.find((s) => s.kind === k)?.label ?? k;
 
 export async function loadChain(id: string): Promise<Chain | undefined> {
-  return getChainRow(id);
+  const row = await getChainRow(id);
+  if (!row) return row;
+  const moved = varsToInputsStep(row);
+  if (moved !== row) await putChainRow(moved);
+  return moved;
+}
+
+/**
+ * Workflows used to keep inputs in a separate "Workflow variables" list. They are a Set variables
+ * step at the top now: each value becomes a literal assignment in a first step named "inputs".
+ * Secret variables stay where they were (their values live in the secret store). Returns the
+ * same object when there is nothing to move.
+ */
+export function varsToInputsStep(c: Chain): Chain {
+  const plain = c.vars.filter((v) => !v.secret);
+  if (!plain.length) return c;
+  const assignments = Object.fromEntries(plain.map((v) => [v.name, literalExpr(v.value)]));
+  const step: ChainStep = { id: uid("st_"), name: freshStepName(c.steps, "inputs"), kind: "set-vars", assignments };
+  const notes = plain.filter((v) => v.description).map((v) => `${v.name}: ${v.description}`);
+  if (notes.length) step.description = notes.join("\n");
+  return { ...c, vars: c.vars.filter((v) => v.secret), steps: [step, ...c.steps] };
+}
+
+/** A value as an expression the Set variables step evaluates back to the same value. */
+export function literalExpr(v: unknown): string {
+  return v === undefined ? '""' : JSON.stringify(v);
 }
 
 export async function saveChain(c: Chain): Promise<Chain> {
@@ -26,13 +51,9 @@ export async function saveChain(c: Chain): Promise<Chain> {
   return row;
 }
 
-/** Deletes a workflow; the returned function puts it back (Undo). */
+/** Moves a workflow to the Trash; the returned function puts it back (Undo). */
 export async function deleteChain(id: string): Promise<() => Promise<void>> {
-  const row = await getChainRow(id);
-  await deleteChainRow(id);
-  return async () => {
-    if (row) await putChainRow(row);
-  };
+  return trashChain(id);
 }
 
 export async function allChains(): Promise<Chain[]> {
@@ -100,7 +121,8 @@ export function newStep(kind: ChainStepKind, steps: ChainStep[], defaultConnecti
         : "return [];";
       break;
     case "set-vars":
-      s.assignments = { ids: `column("${prev ?? "step"}", "id")` };
+      // The first step usually holds inputs (a fixed value); later ones take values from a result.
+      s.assignments = prev ? { ids: `column("${prev}", "id")` } : { value: '""' };
       break;
     case "export":
       s.format = "csv";

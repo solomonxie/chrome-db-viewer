@@ -213,9 +213,16 @@ test("Move to group and Delete work inside the popup", async () => {
   await click(more("Local postgres"));
   await click(button("Delete"));
   expect(store.has("pg_local")).toBe(true);
-  expect(rowOf("Local postgres").parentElement!.textContent).toContain("Delete Local postgres?");
+  expect(rowOf("Local postgres").parentElement!.textContent).toContain("Move Local postgres to the Trash?");
   await click(button("Delete"));
   await until(() => !store.has("pg_local") && !names().includes("Local postgres"));
+  // It went to the Trash, not away: Restore brings back the same row.
+  const { listTrash, restoreFromTrash } = await import("../../src/app/store/trash");
+  const [t] = await listTrash();
+  expect(t).toMatchObject({ kind: "connection", name: "Local postgres", where: "PostgreSQL" });
+  await restoreFromTrash(t!.id, async (_s, row) => void store.set((row as SavedConnection).id, row as SavedConnection));
+  expect(store.get("pg_local")!.name).toBe("Local postgres");
+  expect(await listTrash()).toEqual([]);
 });
 
 test("Copy as lists the engine's formats and copies the chosen one", async () => {

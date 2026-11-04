@@ -1,0 +1,13 @@
+{
+  "columns": [
+    { "name": "id", "type": "BIGINT", "nullable": false },
+    { "name": "plans", "type": "VARCHAR", "nullable": true },
+    { "name": "meta", "type": "JSON", "nullable": true },
+    { "name": "note", "type": "VARCHAR", "nullable": true }
+  ],
+  "rows": [
+    [1, "monthly_direct", null, "short"],
+    [2, "annual_trial,first_month_free,monthly_direct,first_order_promo,annual_direct,winback_offer", {"source": "web", "tags": ["a", "b"]}, null],
+    [3, "{\"plan\":\"annual\",\"seats\":3}", null, "line one\nline two"]
+  ]
+}

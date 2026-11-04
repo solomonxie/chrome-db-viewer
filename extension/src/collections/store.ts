@@ -4,6 +4,7 @@
 
 import * as idb from "../app/store/db";
 import { readSecret, secretStore, sessionSecrets, forgetSecret } from "../app/store/secrets";
+import { moveToTrash, restoreFromTrash, type TrashItem } from "../app/store/trash";
 import type { Chain, Collection, Environment, Folder, NamedQuery, Scripts, TemplateLibrary, VarDef } from "./model";
 
 // ---------------------------------------------------------------------------------------------
@@ -293,23 +294,45 @@ export async function createCollection(name: string, partial: Partial<Collection
 /** Undoes a delete: writes back exactly what it removed, secret values included. */
 export type Restore = () => Promise<void>;
 
+/** Every secret ref a collection's rows use (collection vars, environments, query vars). */
+function collectionSecretRefs(c: Collection | undefined, queries: NamedQuery[]): string[] {
+  const out: string[] = [];
+  if (c) {
+    for (const v of c.vars) if (v.secret) out.push(secretRef(c.id, "var", v.name));
+    for (const e of c.environments) for (const v of c.vars) if (v.secret) out.push(secretRef(c.id, `env:${e.id}`, v.name));
+  }
+  for (const q of queries) for (const v of q.vars) if (v.secret) out.push(secretRef(q.collectionId, `q:${q.id}`, v.name));
+  return out;
+}
+
+/** Writes a trashed row back into its store. */
+export async function writeTrashedRow(store: TrashItem["rows"][number]["store"], row: unknown): Promise<void> {
+  if (store === "connections") await idb.put("connections", row as idb.SavedConnection);
+  else await db.put(store, row as never);
+}
+
+const undoFor = (t: TrashItem): Restore => async () => {
+  await restoreFromTrash(t.id, writeTrashedRow);
+};
+
+/** Moves a collection, its folders and its queries to the Trash. Undo restores it. */
 export async function deleteCollection(id: string): Promise<Restore> {
   // Workflows aren't part of a collection; a step using one of its named queries then says the query is gone.
   const [folders, queries, row] = await Promise.all([db.byCollection("folders", id), db.byCollection("namedQueries", id), db.get("collections", id)]);
-  const saved = row ? await fillCollectionSecrets(row) : undefined;
-  const savedQueries = await Promise.all(queries.map(fillQuerySecrets));
-  for (const q of queries) await deleteQuery(q.id);
+  if (!row) return async () => {};
+  const t = await moveToTrash(
+    {
+      kind: "collection",
+      name: row.name,
+      where: `${queries.length} quer${queries.length === 1 ? "y" : "ies"}${folders.length ? `, ${folders.length} folder${folders.length === 1 ? "" : "s"}` : ""}`,
+      rows: [{ store: "collections", row }, ...folders.map((f) => ({ store: "folders" as const, row: f })), ...queries.map((q) => ({ store: "namedQueries" as const, row: q }))],
+    },
+    collectionSecretRefs(row, queries),
+  );
+  for (const q of queries) await db.del("namedQueries", q.id);
   for (const f of folders) await db.del("folders", f.id);
-  if (row) {
-    for (const v of row.vars) if (v.secret) await forgetSecret(secretRef(id, "var", v.name));
-    for (const e of row.environments) for (const v of row.vars) if (v.secret) await forgetSecret(secretRef(id, `env:${e.id}`, v.name));
-  }
   await db.del("collections", id);
-  return async () => {
-    if (saved) await db.put("collections", await stashCollectionSecrets(saved));
-    for (const f of folders) await db.put("folders", f);
-    for (const q of savedQueries) await saveQuery(q);
-  };
+  return undoFor(t);
 }
 
 export async function createFolder(collectionId: string, name: string, parentId?: string): Promise<Folder> {
@@ -322,18 +345,19 @@ export async function saveFolder(f: Folder): Promise<void> {
   await db.put("folders", f);
 }
 
-/** Deletes a folder; its queries and subfolders move up to the parent. */
+/** Deletes a folder (to the Trash); its queries and subfolders move up to the parent. */
 export async function deleteFolder(id: string): Promise<Restore> {
   const f = await db.get("folders", id);
   if (!f) return async () => {};
-  const [folders, queries] = await Promise.all([db.byCollection("folders", f.collectionId), db.byCollection("namedQueries", f.collectionId)]);
+  const [folders, queries, col] = await Promise.all([db.byCollection("folders", f.collectionId), db.byCollection("namedQueries", f.collectionId), db.get("collections", f.collectionId)]);
   const subs = folders.filter((x) => x.parentId === id);
   const inside = queries.filter((x) => x.folderId === id);
+  const t = await moveToTrash({ kind: "folder", name: f.name, where: `${col?.name ?? "collection"} · its contents moved up a level`, rows: [{ store: "folders", row: f }] });
   for (const sub of subs) await db.put("folders", { ...sub, parentId: f.parentId });
   for (const q of inside) await db.put("namedQueries", { ...q, folderId: f.parentId });
   await db.del("folders", id);
   return async () => {
-    await db.put("folders", f);
+    await restoreFromTrash(t.id, writeTrashedRow);
     for (const sub of subs) {
       const now = await db.get("folders", sub.id);
       if (now) await db.put("folders", { ...now, parentId: id });
@@ -376,14 +400,18 @@ export async function loadQuery(id: string): Promise<NamedQuery | undefined> {
   return q ? fillQuerySecrets(q) : undefined;
 }
 
+/** Moves a saved query to the Trash. Undo restores it. */
 export async function deleteQuery(id: string): Promise<Restore> {
   const q = await db.get("namedQueries", id);
-  const saved = q ? await fillQuerySecrets(q) : undefined;
-  if (q) for (const v of q.vars) if (v.secret) await forgetSecret(secretRef(q.collectionId, `q:${q.id}`, v.name));
+  if (!q) return async () => {};
+  const [col, folders] = await Promise.all([db.get("collections", q.collectionId), db.byCollection("folders", q.collectionId)]);
+  const inFolder = folderPath(q.folderId, folders);
+  const t = await moveToTrash(
+    { kind: "query", name: q.name, where: [col?.name, inFolder].filter(Boolean).join("/"), rows: [{ store: "namedQueries", row: q }] },
+    collectionSecretRefs(undefined, [q]),
+  );
   await db.del("namedQueries", id);
-  return async () => {
-    if (saved) await saveQuery(saved);
-  };
+  return undoFor(t);
 }
 
 /** Moves a query to a folder (undefined = top level), renaming it if the name is taken there. */
@@ -426,6 +454,15 @@ export async function putChainRow(c: Chain): Promise<void> {
 
 export async function deleteChainRow(id: string): Promise<void> {
   await db.del("chains", id);
+}
+
+/** Moves a workflow to the Trash. Undo restores it. */
+export async function trashChain(id: string): Promise<Restore> {
+  const c = await db.get("chains", id);
+  if (!c) return async () => {};
+  const t = await moveToTrash({ kind: "workflow", name: c.name, where: `${c.steps.length} step${c.steps.length === 1 ? "" : "s"}`, rows: [{ store: "chains", row: c }] });
+  await db.del("chains", id);
+  return undoFor(t);
 }
 
 

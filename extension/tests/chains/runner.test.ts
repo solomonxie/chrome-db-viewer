@@ -264,3 +264,86 @@ test("a query step whose named query has several statements runs the earlier one
   expect(s.steps.top).toMatchObject({ status: "done", rowCount: 2 });
   expect(seen).toEqual([2]);
 });
+
+test("step results are saved and still there after a reload, until Clear result", async () => {
+  const { setResultStore, loadSavedResults, cachedResult } = await import("../../src/chains/runner");
+  const { chainCache } = await import("../../src/chains/cache");
+  const disk = new Map<string, unknown>();
+  const store = {
+    read: async (id: string) => structuredClone(disk.get(id)) as never,
+    write: async (id: string, steps: unknown) => void disk.set(id, structuredClone(steps)),
+    remove: async (id: string) => void disk.delete(id),
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 350));
+  setResultStore(store);
+  try {
+    const deps = makeDeps();
+    const chain = loadChain("transform_join.json");
+    clearCache(chain.id);
+    await runChainToEnd(chain, {}, deps);
+    await settle();
+    expect(Object.keys(disk.get(chain.id) as object).sort()).toEqual(["ads", "has_rows", "report", "sales"]);
+    const ran = deps.log.executed.length;
+
+    // A reload: memory is empty; the saved results come back and the next run uses them.
+    chainCache(chain.id).clear();
+    setResultStore(store);
+    await loadSavedResults(chain.id);
+    expect(cachedResult(chain.id, "report")).toMatchObject({ rowCount: 3 });
+    const again = await runChainToEnd(chain, {}, deps);
+    expect(deps.log.executed.length).toBe(ran);
+    expect(again.steps.report).toMatchObject({ cached: true, rowCount: 3 });
+
+    // Clear result removes them from disk too.
+    clearCache(chain.id);
+    await settle();
+    expect(disk.has(chain.id)).toBe(false);
+  } finally {
+    setResultStore(null);
+  }
+});
+
+test("SET x = (SELECT …) runs in local DuckDB over earlier results and earlier variables", async () => {
+  const { summary, deps } = await run("set_vars_sql.json");
+  expect(summary.status).toBe("done");
+  const pick = summary.steps.pick!;
+  expect(pick.vars).toMatchObject({ none: [] });
+  expect(Array.isArray(pick.vars!.big_ids)).toBe(true);
+  expect(pick.vars!.n).toBe((pick.vars!.big_ids as unknown[]).length);
+  expect(typeof pick.vars!.total).toBe("number");
+  expect(pick.renderedSql).toContain(`SET big_ids = (SELECT list(DISTINCT ad_hash ORDER BY ad_hash) FROM "step_sales" WHERE revenue >= 100)`);
+  // The query step that uses the list depends on the SET step, and gets the values.
+  const pg = deps.log.executed.find((e) => e.conn === "pg")!;
+  expect(pg.sql).toMatch(/^SELECT ad_hash, ad_name FROM ads WHERE ad_hash IN \('/);
+});
+
+test("a variable with no value stops the step instead of rendering as nothing", async () => {
+  const { summary, deps } = await run("missing_var.json");
+  expect(summary.status).toBe("failed");
+  expect(summary.failedStep).toBe("orders");
+  // Only bq_project_name: region is only tested in {% if %}, so leaving it unset is fine.
+  expect(summary.steps.orders!.error).toBe(
+    `Step "orders" uses "bq_project_name", which has no value. Set it in a Set variables step above (Run from there, or Clear result if it ran before the value was added).`,
+  );
+  expect(deps.log.executed).toHaveLength(0);
+});
+
+test("an assert is checked again on every run, even when everything else is cached", async () => {
+  const deps = makeDeps();
+  const chain = loadChain("transform_join.json");
+  clearCache(chain.id);
+  await runChainToEnd(chain, {}, deps);
+  const again = await runChainToEnd(chain, {}, deps);
+  expect(again.steps.report!.cached).toBe(true);
+  expect(again.steps.has_rows!.cached).toBeUndefined();
+  expect(again.steps.has_rows).toMatchObject({ status: "done", tests: [{ passed: true }] });
+});
+
+test("SET x = (SELECT …) must give one row and one column; the error says how to get a list", async () => {
+  const chain = loadChain("set_vars_sql.json");
+  chain.steps[2]!.assignments = { big_ids: '(SELECT ad_hash FROM {{ ref("sales") }})' };
+  clearCache(chain.id);
+  const summary = await runChainToEnd(chain, {}, makeDeps());
+  expect(summary.status).toBe("failed");
+  expect(summary.steps.pick!.error).toMatch(/^SET big_ids: the query returns \d+ rows; it must return one\. For a list of values use SELECT list\(ad_hash\) …/);
+});

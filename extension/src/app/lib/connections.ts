@@ -5,7 +5,10 @@ import type { ConnectionConfig, Driver } from "@core/types";
 import { createDriver } from "@core/registry";
 import { createDemoDriver, DEMO_CONNECTION, DEMO_CONNECTION_ID, isDemo } from "../demo/demoDriver";
 import * as db from "../store/db";
-import { copySecret, readSecret, type SecretMode } from "../store/secrets";
+import { copySecret, forgetSecret, readSecret, type SecretMode } from "../store/secrets";
+import { moveToTrash } from "../store/trash";
+import { forgetSchemaCache } from "../store/schemaCache";
+import { ENGINE } from "./format";
 import { openConnectionTab } from "./route";
 
 export type { SavedConnection } from "../store/db";
@@ -51,8 +54,30 @@ export function compareGroups(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+/** Every secret ref a connection uses: `c_<id>` and `c_<id>_<what>` (refresh token, key, SSH key). */
+export function connectionSecretRefs(c: db.SavedConnection): string[] {
+  const out = new Set<string>();
+  const own = `c_${c.id}`;
+  if (c.secretRef) out.add(c.secretRef);
+  const walk = (v: unknown) => {
+    if (typeof v === "string") {
+      if (v === own || v.startsWith(own + "_")) out.add(v);
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(c.options);
+  return [...out];
+}
+
+/** Moves a connection to the Trash, with its saved password, so it can be restored as it was. */
 export async function deleteConnection(id: string): Promise<void> {
+  const c = await db.get("connections", id);
+  if (!c) return;
+  await moveToTrash({ kind: "connection", name: c.name, where: ENGINE[c.driver]?.name ?? c.driver, rows: [{ store: "connections", row: c }] }, connectionSecretRefs(c));
   await db.del("connections", id);
+  // The copy in the Trash keeps the values; the live refs go, as a deleted connection's would.
+  for (const ref of connectionSecretRefs(c)) await forgetSecret(ref);
+  await forgetSchemaCache(id);
 }
 
 /**

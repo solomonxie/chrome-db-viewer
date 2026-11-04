@@ -177,6 +177,14 @@ function PickFile() {
   );
 }
 
+/** Breadcrumb entries: all sheets when there are 4 or fewer, else the first, "…", and the last two. */
+export function crumbItems(n: number): (number | "more")[] {
+  if (n <= 4) return Array.from({ length: n }, (_, i) => i);
+  return [0, "more", n - 2, n - 1];
+}
+
+const crumbTitle = (s: Sheet) => (s.kind === "query" ? s.sql : s.title);
+
 function SheetStack(props: { driver: Driver; table: string; name: string; size?: number; demo: boolean }) {
   const { driver, table } = props;
   const [stack, setStack] = useState<Sheet[]>([{ ...sourceSheet(table), title: props.name }]);
@@ -186,6 +194,7 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
   const [palette, setPalette] = useState(false);
   const [saveMenu, setSaveMenu] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [crumbMenu, setCrumbMenu] = useState<{ x: number; y: number } | null>(null);
   const [totalRows, setTotalRows] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(() => readFlag(DETAILS_KEY));
   const [showSql, setShowSql] = useState(false);
@@ -233,9 +242,13 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
       writeFlag(DETAILS_KEY, !v);
       return !v;
     });
+  // Running SQL from a SQL sheet replaces it (editing the query isn't a new view); from any
+  // other sheet it opens a SQL sheet on top.
   const runSql = () => {
     const text = sqlText.trim();
-    if (text) push(querySheet(text));
+    if (!text) return;
+    if (sheet.kind === "query") setStack((st) => [...st.slice(0, -1), querySheet(text)]);
+    else push(querySheet(text));
   };
   // The Details pane shows the selected rows (or the cursor row), read-only.
   const details: DetailsSource | null = useMemo(() => {
@@ -317,15 +330,41 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
     <div className="sheet">
       <div className="topbar">
         <nav className="crumbs" aria-label="Sheet stack">
-          {stack.map((s, i) => (
-            <span key={i} style={{ display: "contents" }}>
-              {i > 0 && <span className="sep">›</span>}
-              <button aria-current={i === stack.length - 1} onClick={() => setStack(stack.slice(0, i + 1))}>
-                {s.title}
-              </button>
-            </span>
-          ))}
+          {crumbItems(stack.length).map((it, k) =>
+            it === "more" ? (
+              <span key="more" style={{ display: "contents" }}>
+                <span className="sep">›</span>
+                <button
+                  className="crumb-more"
+                  aria-label={`${stack.length - 3} more sheets`}
+                  title="More sheets"
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setCrumbMenu({ x: r.left, y: r.bottom + 4 });
+                  }}
+                >
+                  …
+                </button>
+              </span>
+            ) : (
+              <span key={it} style={{ display: "contents" }}>
+                {k > 0 && <span className="sep">›</span>}
+                <button aria-current={it === stack.length - 1} title={crumbTitle(stack[it]!)} onClick={() => setStack(stack.slice(0, it + 1))}>
+                  {stack[it]!.kind === "query" && <span className="crumb-kind">SQL</span>}
+                  {stack[it]!.kind === "query" ? stack[it]!.title.replace(/^SQL:\s*/, "") : stack[it]!.title}
+                </button>
+              </span>
+            ),
+          )}
         </nav>
+        {crumbMenu && (
+          <ContextMenu
+            x={crumbMenu.x}
+            y={crumbMenu.y}
+            onClose={() => setCrumbMenu(null)}
+            items={stack.slice(1, -2).map((s, j) => ({ label: s.title, onClick: () => setStack(stack.slice(0, j + 2)) }))}
+          />
+        )}
         <div className="sheet-tools">
           {props.demo && <span className="tag demo">Demo data</span>}
           <span className="sheet-meta faint">
@@ -419,8 +458,8 @@ function SheetStack(props: { driver: Driver; table: string; name: string; size?:
             columns={state.columns}
             rowCount={state.rows.length}
             value={(r, c) => state.rows[r]?.[c] ?? null}
-            sort={sheet.kind === "source" ? sheet.sort : undefined}
-            onSort={(name, additive) => sheet.kind === "source" && setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort, name, additive) }])}
+            sort={sheet.sort}
+            onSort={(name, additive) => setStack((st) => [...st.slice(0, -1), { ...sheet, sort: cycleSort(sheet.sort ?? [], name, additive) } as Sheet])}
             selection={selection}
             cursor={cursor}
             onSelection={(s, c) => {

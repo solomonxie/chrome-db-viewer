@@ -23,7 +23,6 @@ import {
   saveConnection,
   type SavedConnection,
 } from "../app/lib/connections";
-import { forgetSecret } from "../app/store/secrets";
 import { ENV_VAR } from "../app/lib/format";
 
 /**
@@ -93,9 +92,8 @@ export function Popup(props: { onDone?: () => void }) {
   };
   const remove = async (c: SavedConnection) => {
     await deleteConnection(c.id);
-    if (c.secretRef) await forgetSecret(c.secretRef);
     setPanel(null);
-    setNote(`Deleted ${c.name}`);
+    setNote(`Moved ${c.name} to the Trash (Settings › Trash)`);
     reload();
   };
 
@@ -122,7 +120,7 @@ export function Popup(props: { onDone?: () => void }) {
       return (
         <div className="pop-menu" role="group" aria-label={`Delete ${c.name}`}>
           <p className="pop-menu-q">
-            Delete <b>{c.name}</b>? The saved settings and password go; the database itself is not touched.
+            Move <b>{c.name}</b> to the Trash? You can restore it, password included, from Settings › Trash. The database itself is not touched.
           </p>
           <div className="pop-menu-acts">
             <button className="btn sm" onClick={() => setPanel(null)}>

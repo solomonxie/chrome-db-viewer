@@ -143,12 +143,27 @@ export function workflowFromFile(
   mapping: Record<string, string | undefined>,
   opts: { id: string; now?: number; queryIdFor?: (path: string) => string | undefined },
 ): Chain {
+  const steps = file.steps.map((s, i) => toStep(s, i, mapping, opts.queryIdFor ?? (() => undefined)));
+  // A file's "vars" become a first Set variables step ("inputs"), where workflows keep their inputs.
+  const plain = (file.vars ?? []).filter((v) => !v.secret);
+  if (plain.length) {
+    let name = "inputs";
+    for (let n = 2; steps.some((s) => s.name === name); n++) name = `inputs_${n}`;
+    const notes = plain.filter((v) => v.description).map((v) => `${v.name}: ${v.description}`);
+    steps.unshift({
+      id: `st_0_${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      kind: "set-vars",
+      assignments: Object.fromEntries(plain.map((v) => [v.name, v.value === undefined ? '""' : JSON.stringify(v.value)])),
+      ...(notes.length ? { description: notes.join("\n") } : {}),
+    });
+  }
   return {
     id: opts.id,
     name: file.name.trim(),
     ...(file.description ? { description: file.description } : {}),
-    vars: (file.vars ?? []).map((v) => ({ ...v })),
-    steps: file.steps.map((s, i) => toStep(s, i, mapping, opts.queryIdFor ?? (() => undefined))),
+    vars: (file.vars ?? []).filter((v) => v.secret).map((v) => ({ ...v, value: undefined })),
+    steps,
     updatedAt: opts.now ?? Date.now(),
   };
 }

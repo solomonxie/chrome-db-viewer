@@ -3,11 +3,11 @@
 // each with its own editor, status chip, rows, time and bytes. Clicking a step shows its
 // rendered SQL, result preview, tests and log underneath.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Chain, ChainStep, ChainStepKind, NamedQuery, VarDef } from "../../collections/model";
 import { listAllQueries, onCollectionsChanged } from "../../collections/store";
 import { buildGraph, ChainGraphError, type ChainGraph } from "../../chains/graph";
-import { cachedResult, clearCache, estimateChain, runChain, type ChainEstimate, type ChainEvent, type StepEvent } from "../../chains/runner";
+import { cachedResult, clearCache, loadSavedResults, estimateChain, runChain, type ChainEstimate, type ChainEvent, type StepEvent } from "../../chains/runner";
 import { appChainDeps, chainLibrary } from "../../chains/appDeps";
 import type { ChainLibrary } from "../../chains/library";
 import type { Destructive } from "../lib/safety";
@@ -17,9 +17,13 @@ import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { DataGrid, type GridCursor } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { Icon } from "../components/Icon";
-import { Modal, TypedConfirm, useToast } from "../components/ui";
+import { ContextMenu, EngineBadge, Modal, TypedConfirm, useToast, type MenuItem } from "../components/ui";
 import { kindLabel, loadChain, newStep, saveChain, STEP_KINDS } from "./chainStore";
 import { downloadWorkflow } from "./WorkflowImport";
+import { formatSetText, parseSetText } from "../../chains/setText";
+import { installResultStore } from "../store/chainResults";
+
+installResultStore();
 import { splitStatementsRaw } from "../../collections/split";
 
 type StepState = Partial<StepEvent> & { status?: StepEvent["status"] };
@@ -41,12 +45,12 @@ export function ChainView({ chainId }: { chainId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [runVars, setRunVars] = useState<Record<string, unknown> | null>(null);
   const [estimate, setEstimate] = useState<{ est: ChainEstimate; blocked: boolean } | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const [colVersion, setColVersion] = useState(0);
   const ac = useRef<AbortController | null>(null);
+  const failedStep = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Load the workflow and the connection list.
@@ -85,8 +89,18 @@ export function ChainView({ chainId }: { chainId: string }) {
     };
   }, [colVersion]);
 
-  // Show cached results from earlier runs this session.
+  // Show the results of earlier runs: this session's, or the ones saved before a reload.
   useEffect(() => {
+    if (!chain) return;
+    let cancelled = false;
+    void loadSavedResults(chain.id).then(() => !cancelled && showCached());
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain?.id]);
+
+  const showCached = () => {
     if (!chain) return;
     setStates((prev) => {
       const next = { ...prev };
@@ -105,13 +119,13 @@ export function ChainView({ chainId }: { chainId: string }) {
             preview: c.result?.rows.slice(0, 200),
             tests: c.tests,
             logs: c.logs,
+            ...(c.varChanges && Object.keys(c.varChanges).length ? { vars: c.varChanges } : {}),
           };
         }
       }
       return next;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain?.id]);
+  };
 
   const update = useCallback((fn: (c: Chain) => Chain) => {
     setChain((c) => {
@@ -125,7 +139,7 @@ export function ChainView({ chainId }: { chainId: string }) {
 
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
-  const graph = useMemo((): { g?: ChainGraph; error?: string } => {
+  const graph = useMemo((): { g?: ChainGraph; error?: string; errorStep?: string } => {
     if (!chain) return {};
     try {
       return {
@@ -135,7 +149,9 @@ export function ChainView({ chainId }: { chainId: string }) {
         }),
       };
     } catch (e) {
-      return { error: e instanceof ChainGraphError ? e.message : String(e) };
+      // A missing ref or a bad name belongs to one step: shown on its card, not above the steps.
+      const errorStep = e instanceof ChainGraphError && (e.kind === "missing" || e.kind === "invalid" || e.kind === "duplicate") ? e.names[0] : undefined;
+      return { error: e instanceof ChainGraphError ? e.message : String(e), errorStep };
     }
   }, [chain, lib]);
 
@@ -200,16 +216,18 @@ export function ChainView({ chainId }: { chainId: string }) {
     setRunning(true);
     setRunError(null);
     setEstimate(null);
+    failedStep.current = false;
     try {
       const gen = runChain(chain, { ...opts, signal: ctrl.signal, vars: varValues(chain.vars) }, deps);
       for (;;) {
         const n = await gen.next();
         if (n.done) {
           const s = n.value;
-          setRunVars(s.vars);
           if (opts.mode === "all") update((c) => ({ ...c, lastRun: { status: s.status, at: Date.now() } }));
           if (s.status === "blocked" && s.estimate) setEstimate({ est: s.estimate, blocked: true });
-          if (s.status !== "done") setRunError(s.error ?? s.status);
+          // A failed step shows its error on its own card, and a blocked run shows the estimate
+          // dialog: only an error that belongs to no step goes above the steps.
+          if (s.status !== "done" && s.status !== "blocked" && !failedStep.current) setRunError(s.error ?? s.status);
           break;
         }
         onEvent(n.value);
@@ -224,6 +242,7 @@ export function ChainView({ chainId }: { chainId: string }) {
 
   const onEvent = (e: ChainEvent) => {
     if (e.type !== "step") return;
+    if (e.status === "failed") failedStep.current = true;
     setStates((st) => {
       if (e.status === "queued") return { ...st, [e.step]: { status: "queued" } };
       if (e.status === "running") return { ...st, [e.step]: { status: "running" } };
@@ -264,16 +283,13 @@ export function ChainView({ chainId }: { chainId: string }) {
     );
   }
 
-  const sel = chain.steps.find((s) => s.name === selected);
-  const selState = sel ? states[sel.name] : undefined;
   const total = Object.values(states).reduce((a, s) => a + (s.bytesBilled ?? 0), 0);
 
   return (
     <div className="chain-page">
       <header className="topbar chain-top">
         <span className="wf-label">Workflow</span>
-        <input className="input chain-name" value={chain.name} aria-label="Workflow name" onChange={(e) => update((c) => ({ ...c, name: e.target.value }))} />
-        <span className="spacer" />
+        <input className="input chain-name" value={chain.name} title={chain.name} aria-label="Workflow name" onChange={(e) => update((c) => ({ ...c, name: e.target.value }))} />
         {running ? (
           <button className="btn warn" onClick={() => ac.current?.abort()}>
             Stop
@@ -286,26 +302,25 @@ export function ChainView({ chainId }: { chainId: string }) {
         <button
           className="btn"
           disabled={running}
-          title="Forget cached step results, so the next run re-runs every step"
+          title="Forget every step's saved result, so the next run re-runs every step"
           onClick={() => {
             clearCache(chain.id);
             setStates({});
-            toast("Cache cleared");
+            toast("Results cleared");
           }}
         >
-          Clear cache
+          Clear result
         </button>
         <button className="btn" title="Save this workflow as a .dbui-workflow.json file" onClick={() => void downloadWorkflow(chain).catch((e) => toast((e as Error).message))}>
           Export file
         </button>
       </header>
-      {chain.description && <p className="chain-desc muted">{chain.description}</p>}
+      <Description className="chain-desc" lines={8} label="Workflow description" placeholder="Add a description" value={chain.description} onChange={(d) => update((c) => ({ ...c, description: d || undefined }))} />
 
       <div className="chain-body">
         <div className="chain-steps">
-          {graph.error && <div className="err">{graph.error}</div>}
+          {graph.error && !(graph.errorStep && chain.steps.some((x) => x.name === graph.errorStep)) && <div className="err">{graph.error}</div>}
           {runError && <div className="err">{runError}</div>}
-          <VarsEditor vars={chain.vars} runVars={runVars} onChange={(vars) => update((c) => ({ ...c, vars }))} />
           {chain.steps.length === 0 && <div className="empty">No steps yet. Add a Query step to start.</div>}
           {chain.steps.map((s, i) => (
             <StepCard
@@ -329,6 +344,7 @@ export function ChainView({ chainId }: { chainId: string }) {
               onRunFrom={() => void doRun({ mode: "from", step: s.name })}
               onRunOnly={() => void doRun({ mode: "only", step: s.name })}
               canRun={!!deps && !graph.error}
+              graphError={graph.errorStep === s.name ? graph.error : undefined}
             />
           ))}
           <div className="chain-add">
@@ -341,8 +357,6 @@ export function ChainView({ chainId }: { chainId: string }) {
           </div>
           {total > 0 && <div className="muted chain-total">Billed this run: {fmtBytes(total)}</div>}
         </div>
-
-        <StepDetail step={sel} state={selState} />
       </div>
 
       {estimate && (
@@ -392,17 +406,6 @@ function varValues(vars: VarDef[]): Record<string, unknown> {
   return Object.fromEntries(vars.filter((v) => v.value !== undefined).map((v) => [v.name, v.value]));
 }
 
-/** What the user typed → a value: JSON when it parses (numbers, lists, objects), else the text. */
-function parseValue(text: string): unknown {
-  const t = text.trim();
-  if (t === "") return "";
-  try {
-    return JSON.parse(t);
-  } catch {
-    return text;
-  }
-}
-
 const showValue = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
 
 // ---------------------------------------------------------------------------------------
@@ -413,6 +416,17 @@ function StatusChip({ state }: { state?: StepState }) {
   const label = s === "done" && state?.cached ? "cached" : s === "done" && state?.inlinedInto ? "inlined" : s;
   return <span className={`chip-status ${s}`}>{label}</span>;
 }
+
+/** Steps whose result is a table later steps read with ref("name"); only these show their name. */
+const NAMED_KINDS: ChainStepKind[] = ["query", "transform-sql", "transform-script"];
+const KIND_TAG: Record<ChainStepKind, string> = {
+  query: "Query",
+  "transform-sql": "DuckDB",
+  "transform-script": "JavaScript",
+  "set-vars": "Set variables",
+  assert: "Assert",
+  export: "Export",
+};
 
 function StepCard(props: {
   step: ChainStep;
@@ -435,62 +449,240 @@ function StepCard(props: {
   onDelete: () => void;
   onRunFrom: () => void;
   onRunOnly: () => void;
+  /** This step's part in a workflow-wide problem (a ref to a step that doesn't exist …). */
+  graphError?: string;
 }) {
   const { step, state } = props;
   const [name, setName] = useState(step.name);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [editingDesc, setEditingDesc] = useState(false);
   useEffect(() => setName(step.name), [step.name]);
+  const named = NAMED_KINDS.includes(step.kind);
+  const q = step.kind === "query" && step.queryId ? props.queries.find((x) => x.id === step.queryId) : undefined;
+  const connId = step.kind === "query" ? (step.connectionId ?? q?.connectionId ?? props.lib?.defaultConnectionId) : undefined;
+  const conn = connId ? props.conns.find((c) => c.id === connId) : undefined;
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+  const items: MenuItem[] = [
+    { label: "Run from here", hint: "and the steps after it", disabled: props.running || !props.canRun, onClick: props.onRunFrom },
+    { label: "Run only this step", hint: "inputs from the cache", disabled: props.running || !props.canRun, onClick: props.onRunOnly },
+    { separator: true, label: "" },
+    { label: step.description ? "Edit description" : "Add description", onClick: () => setEditingDesc(true) },
+    { separator: true, label: "" },
+    { label: "Move up", disabled: props.index === 0, onClick: () => props.onMove(-1) },
+    { label: "Move down", disabled: props.index === props.count - 1, onClick: () => props.onMove(1) },
+    { separator: true, label: "" },
+    { label: "Delete step", onClick: props.onDelete },
+  ];
   return (
-    <section className={"chain-step" + (props.selected ? " sel" : "") + (state?.status ? ` st-${state.status}` : "")} onClick={props.onSelect}>
+    <section
+      className={`chain-step k-${step.kind}` + (props.selected ? " sel" : "") + (state?.status ? ` st-${state.status}` : "")}
+      onClick={props.onSelect}
+      aria-label={`Step ${props.index + 1}: ${kindLabel(step.kind)}${named ? ` ${step.name}` : ""}`}
+    >
       <div className="cs-head">
         <span className="cs-idx">{props.index + 1}</span>
-        <input
-          className="input mono cs-name"
-          value={name}
-          aria-label="Step name"
-          onChange={(e) => setName(e.target.value.replace(/[^\w]/g, "_"))}
-          onBlur={() => (name && name !== step.name ? props.onRename(name) : setName(step.name))}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        />
-        <span className="cs-kind">{kindLabel(step.kind)}</span>
-        <StatusChip state={state} />
+        <span className="cs-kind" title={kindLabel(step.kind)}>
+          {KIND_TAG[step.kind]}
+        </span>
+        {step.kind === "query" && (
+          <span className="cs-conn" title={conn ? `Runs on ${conn.name}` : "Pick a connection below"}>
+            {conn ? (
+              <>
+                <EngineBadge driver={conn.driver} />
+                <b>{conn.name}</b>
+                {conn.env === "production" && <span className="cs-env">production</span>}
+                {conn.readOnly && <span className="faint">read-only</span>}
+              </>
+            ) : (
+              <span className="err-text">No connection</span>
+            )}
+          </span>
+        )}
+        {(step.kind === "transform-sql" || step.kind === "transform-script") && <span className="cs-conn faint">on this machine</span>}
+        <span className="spacer" />
         <span className="cs-stats muted">
           {state?.status === "running" && <span className="live" />}
-          {state?.rowCount !== undefined && `${fmtInt(state.rowCount)} rows`}
-          {state?.ms !== undefined && ` · ${fmtMs(state.ms)}`}
+          {state?.rowCount !== undefined && step.kind !== "assert" && step.kind !== "set-vars" && `${fmtInt(state.rowCount)} row${state.rowCount === 1 ? "" : "s"}`}
+          {step.kind === "set-vars" && state?.vars && `${Object.keys(state.vars).length} set`}
+          {step.kind === "assert" && state?.status === "done" && "passed"}
+          {state?.ms !== undefined && `${step.kind === "export" && state.rowCount === undefined ? "" : " · "}${fmtMs(state.ms)}`}
           {state?.bytesBilled !== undefined && ` · ${fmtBytes(state.bytesBilled)}`}
         </span>
-        <span className="spacer" />
-        <button className="btn" disabled={props.running || !props.canRun} title="Run this step and everything after it" onClick={(e) => (e.stopPropagation(), props.onRunFrom())}>
-          Run from here
-        </button>
-        <button className="btn" disabled={props.running || !props.canRun} title="Run only this step (inputs from the cache)" onClick={(e) => (e.stopPropagation(), props.onRunOnly())}>
-          Run only
-        </button>
-        <button className="btn icon ghost" disabled={props.index === 0} aria-label="Move up" title="Move up" onClick={(e) => (e.stopPropagation(), props.onMove(-1))}>
-          ↑
-        </button>
-        <button className="btn icon ghost" disabled={props.index === props.count - 1} aria-label="Move down" title="Move down" onClick={(e) => (e.stopPropagation(), props.onMove(1))}>
-          ↓
-        </button>
-        <button className="btn icon ghost" aria-label="Delete step" title="Delete step" onClick={(e) => (e.stopPropagation(), props.onDelete())}>
-          <Icon name="trash" />
-        </button>
+        <StatusChip state={state} />
+        <span className="cs-acts">
+          <button className="btn icon ghost" disabled={props.running || !props.canRun} aria-label="Run only this step" title="Run only this step (earlier results from the cache). Run from here is in the ⋯ menu." onClick={stop(props.onRunOnly)}>
+            <Icon name="play" />
+          </button>
+          <button
+            className="btn icon ghost"
+            aria-label="Step actions"
+            title="Run from here, move, delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.right - 220, y: r.bottom + 4 });
+            }}
+          >
+            <Icon name="more" />
+          </button>
+        </span>
       </div>
-      {step.description && <p className="cs-desc muted">{step.description}</p>}
-      <div className="cs-deps muted">
-        {props.inputs.length ? (
-          <>
-            Inputs: {props.inputs.map((i) => <code key={i}>{i}</code>)}
-          </>
-        ) : (
-          "No inputs"
-        )}
-        {state?.inlinedInto && <> · inlined as a CTE into {state.inlinedInto.join(", ")}</>}
-        {state?.reason && <> · {state.reason}</>}
-      </div>
+      {(step.description || editingDesc) && (
+        <Description
+          key={editingDesc ? "editing" : "shown"}
+          className="cs-desc"
+          label="Step description"
+          placeholder="What this step is for"
+          value={step.description}
+          startEditing={editingDesc}
+          editButton={false}
+          onDone={() => setEditingDesc(false)}
+          onChange={(d) => props.onChange({ description: d || undefined })}
+        />
+      )}
       <StepEditor step={step} queries={props.queries} lib={props.lib} conns={props.conns} earlier={props.earlier} onChange={props.onChange} />
+      {props.graphError && <div className="err">{props.graphError}. Nothing runs until it's fixed.</div>}
       {state?.error && <div className="err">{state.error}</div>}
+      <div className="cs-foot muted">
+        {named && (
+          <label className="cs-out" onClick={(e) => e.stopPropagation()}>
+            Result table
+            <input
+              className="input mono cs-name"
+              value={name}
+              aria-label="Step name"
+              title={`Later steps read this result as {{ ref("${step.name}") }}`}
+              onChange={(e) => setName(e.target.value.replace(/[^\w]/g, "_"))}
+              onBlur={() => (name && name !== step.name ? props.onRename(name) : setName(step.name))}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+            <code>{`{{ ref("${step.name}") }}`}</code>
+          </label>
+        )}
+        {props.inputs.length > 0 && (
+          <span>
+            uses {props.inputs.map((i) => <code key={i}>{i}</code>)}
+          </span>
+        )}
+        {state?.inlinedInto && <span>inlined as a CTE into {state.inlinedInto.join(", ")}</span>}
+        {state?.reason && <span>{state.reason}</span>}
+      </div>
+      <StepOutput step={step} state={state} />
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </section>
+  );
+}
+
+/**
+ * A workflow's or step's description. **Edit** turns it into a text box with **Save** and
+ * **Cancel** (⌘↵ saves, Esc cancels); clicking the text does nothing. Text taller than 3 lines
+ * is cut to 3 with **Show more**, which only appears when something is actually cut.
+ */
+function Description(props: {
+  className: string;
+  label: string;
+  placeholder: string;
+  value?: string;
+  startEditing?: boolean;
+  /** Lines shown before "Show more". */
+  lines?: number;
+  /** false: no Edit button here (a step edits its description from its ⋯ menu). */
+  editButton?: boolean;
+  /** Called when editing ends, saved or cancelled. */
+  onDone?: () => void;
+  onChange: (v: string) => void;
+}) {
+  const value = props.value ?? "";
+  const [editing, setEditing] = useState(!!props.startEditing);
+  const [draft, setDraft] = useState(value);
+  const [expanded, setExpanded] = useState(false);
+  const [cut, setCut] = useState(false);
+  const text = useRef<HTMLParagraphElement>(null);
+
+  // Is the folded text cut off? Measured, so short text never shows "Show more".
+  useLayoutEffect(() => {
+    const el = text.current;
+    if (!el || expanded) return;
+    const check = () => setCut(el.scrollHeight > el.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, expanded, editing]);
+
+  const edit = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setEditing(false);
+    props.onDone?.();
+  };
+  const save = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next !== value.trim()) props.onChange(next);
+    props.onDone?.();
+  };
+
+  if (editing) {
+    return (
+      <div className={`desc-editing ${props.className}-editing`} onClick={(e) => e.stopPropagation()}>
+        <textarea
+          className="input desc-edit"
+          aria-label={props.label}
+          placeholder={props.placeholder}
+          autoFocus
+          value={draft}
+          rows={Math.min(16, Math.max(3, draft.split("\n").length + 1))}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") cancel();
+            else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+          }}
+        />
+        <span className="desc-acts">
+          <button className="btn primary" onClick={save}>
+            Save
+          </button>
+          <button className="btn" onClick={cancel}>
+            Cancel
+          </button>
+          <span className="faint">⌘↵ saves · Esc cancels</span>
+        </span>
+      </div>
+    );
+  }
+  if (!value) {
+    return (
+      <button className={`btn ghost desc-add ${props.className}-add`} onClick={(e) => (e.stopPropagation(), edit())}>
+        <Icon name="edit" /> {props.placeholder}
+      </button>
+    );
+  }
+  return (
+    <div className={`desc ${props.className}` + (!expanded ? " folded" : "")} style={{ ["--desc-lines" as string]: props.lines ?? 3 }}>
+      <p ref={text} className="muted">
+        {value}
+      </p>
+      <span className="desc-acts">
+        {(cut || expanded) && (
+          <button className="btn ghost small" onClick={(e) => (e.stopPropagation(), setExpanded(!expanded))}>
+            <Icon name={expanded ? "chevron-down" : "chevron-right"} /> {expanded ? "Show less" : "Show more"}
+          </button>
+        )}
+        {props.editButton !== false && (
+          <button className="btn ghost small" aria-label={`Edit ${props.label.toLowerCase()}`} onClick={(e) => (e.stopPropagation(), edit())}>
+            <Icon name="edit" /> Edit
+          </button>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -501,10 +693,12 @@ function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: Ch
       return (
         <div className="cs-editor">
           <div className="cs-row">
-            <label>
-              Query{" "}
-              <select className="input" value={step.queryId ?? ""} onChange={(e) => onChange({ queryId: e.target.value || undefined })}>
-                <option value="">Inline SQL</option>
+            {/* Only when there are saved queries to pick from: otherwise the SQL below is all there is. */}
+            {(queries.length > 0 || step.queryId) && (
+            <label title="Run a saved query from your collections instead of the SQL written in this step">
+              Saved query{" "}
+              <select className="input" aria-label="Saved query" value={step.queryId ?? ""} onChange={(e) => onChange({ queryId: e.target.value || undefined })}>
+                <option value="">None: SQL written below</option>
                 {queries.map((x) => (
                   <option key={x.id} value={x.id}>
                     {lib?.pathOf(x) ?? x.name}
@@ -512,6 +706,7 @@ function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: Ch
                 ))}
               </select>
             </label>
+            )}
             <label>
               Connection{" "}
               <select className="input" value={step.connectionId ?? ""} onChange={(e) => onChange({ connectionId: e.target.value || undefined })}>
@@ -544,7 +739,7 @@ function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: Ch
         <div className="cs-editor">
           <SqlEditor className="cs-sql" value={step.sql ?? ""} onChange={(sql) => onChange({ sql })} placeholder={`SELECT … FROM {{ ref("a") }} JOIN {{ ref("b") }} USING (id)`} aria-label="Transform SQL" />
           <small className="muted">
-            DuckDB SQL, run on this machine. <code>{'{{ ref("step") }}'}</code> is that step's result table.
+            DuckDB SQL over earlier results: <code>{'{{ ref("step") }}'}</code> is that step's result table.
           </small>
           {earlier.some((x) => x.columns.length) && (
             <div className="cs-cols">
@@ -577,7 +772,7 @@ function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: Ch
         </div>
       );
     case "set-vars":
-      return <AssignmentsEditor value={step.assignments ?? {}} earlier={earlier} onChange={(assignments) => onChange({ assignments })} />;
+      return <SetVarsEditor value={step.assignments ?? {}} onChange={(assignments) => onChange({ assignments })} />;
     case "export": {
       const fmt = step.format ?? "csv";
       const source = (step.sql ?? "").trim();
@@ -642,196 +837,174 @@ function StepEditor({ step, queries, lib, conns, earlier, onChange }: { step: Ch
   }
 }
 
-/** What a Set variables row takes from a step: a list of a column's values, one value, or a number. */
-const PICKS = [
-  { fn: "column", label: "All values of", hint: "a list", use: "sql_list" },
-  { fn: "distinct", label: "Unique values of", hint: "a list", use: "sql_list" },
-  { fn: "first", label: "First value of", hint: "one value", use: "sql" },
-  { fn: "max", label: "Largest value of", hint: "one value", use: "sql" },
-  { fn: "min", label: "Smallest value of", hint: "one value", use: "sql" },
-  { fn: "sum", label: "Sum of", hint: "a number", use: "sql" },
-  { fn: "count", label: "Row count of", hint: "a number", use: "sql" },
-] as const;
-
-/** Splits `fn("step", "col")` / `count("step")` into its parts; anything else is a custom expression. */
-export function parsePick(expr: string): { fn: string; step: string; col: string } | null {
-  const m = /^\s*(\w+)\(\s*"([^"]*)"\s*(?:,\s*"([^"]*)"\s*)?\)\s*$/.exec(expr);
-  if (!m || !PICKS.some((p) => p.fn === m[1])) return null;
-  if (m[1] !== "count" && m[3] === undefined) return null;
-  return { fn: m[1]!, step: m[2]!, col: m[3] ?? "" };
-}
-const pickExpr = (fn: string, step: string, col: string) => (fn === "count" ? `count("${step}")` : `${fn}("${step}", "${col}")`);
-
-function AssignmentsEditor({ value, earlier, onChange }: { value: Record<string, string>; earlier: { name: string; columns: string[] }[]; onChange: (v: Record<string, string>) => void }) {
-  const rows = Object.entries(value);
-  const set = (i: number, k: string, v: string) => {
-    const next = rows.map((r, j) => (j === i ? [k, v] : r));
-    onChange(Object.fromEntries(next));
-  };
-  const lastStep = earlier.at(-1);
+/**
+ * Set variables as text: one `SET name = value` per variable, in one box. A value is a literal
+ * ("Acme", 7, [1, 2]), a function over an earlier result (first("step", "col") …), or a DuckDB
+ * subquery over earlier results in parentheses. Saved as the step's assignments while the text
+ * parses; otherwise the box keeps your text and shows what's wrong.
+ */
+function SetVarsEditor({ value, onChange }: { value: Record<string, string>; onChange: (v: Record<string, string>) => void }) {
+  const [text, setText] = useState(() => formatSetText(value));
+  const [error, setError] = useState<{ line: number; message: string } | undefined>();
+  const mine = useRef(value);
+  // Reload the text when the assignments change from outside (undo, import), not from typing here.
+  useEffect(() => {
+    if (value === mine.current) return;
+    mine.current = value;
+    setText(formatSetText(value));
+    setError(undefined);
+  }, [value]);
+  const lines = Math.max(1, text.split("\n").length);
   return (
-    <div className="cs-editor">
-      <p className="cs-explain">
-        Takes values out of an earlier step's result so a later step can use them, for example the ids found in BigQuery
-        filtering a Postgres query: <code>{"WHERE id IN {{ ids | sql_list }}"}</code>.
-      </p>
-      {rows.map(([k, v], i) => {
-        const p = parsePick(v);
-        const pick = p ? PICKS.find((x) => x.fn === p.fn)! : undefined;
-        const cols = earlier.find((x) => x.name === p?.step)?.columns ?? [];
-        return (
-          <div className="cs-var" key={i}>
-            <div className="cs-var-row">
-              <input className="input mono cs-var-name" value={k} aria-label="Variable name" onChange={(e) => set(i, e.target.value.replace(/[^\w]/g, "_"), v)} />
-              <span className="muted">=</span>
-              <select
-                className="input"
-                aria-label="Take"
-                value={p?.fn ?? "__expr"}
-                onChange={(e) => {
-                  const fn = e.target.value;
-                  if (fn === "__expr") return set(i, k, v);
-                  set(i, k, pickExpr(fn, p?.step ?? lastStep?.name ?? "step", p?.col ?? lastStep?.columns[0] ?? "id"));
-                }}
-              >
-                {PICKS.map((x) => (
-                  <option key={x.fn} value={x.fn}>
-                    {x.label}
-                  </option>
-                ))}
-                <option value="__expr">Custom expression…</option>
-              </select>
-              {p && p.fn !== "count" && (
-                <>
-                  {cols.length ? (
-                    <select className="input mono" aria-label="Column" value={p.col} onChange={(e) => set(i, k, pickExpr(p.fn, p.step, e.target.value))}>
-                      {!cols.includes(p.col) && <option value={p.col}>{p.col}</option>}
-                      {cols.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input className="input mono cs-var-col" aria-label="Column" value={p.col} placeholder="column" title="Run the step once to pick from its columns" onChange={(e) => set(i, k, pickExpr(p.fn, p.step, e.target.value))} />
-                  )}
-                </>
-              )}
-              {p && (
-                <>
-                  <span className="muted">from</span>
-                  <select className="input mono" aria-label="Step" value={p.step} onChange={(e) => set(i, k, pickExpr(p.fn, e.target.value, p.col))}>
-                    {!earlier.some((x) => x.name === p.step) && <option value={p.step}>{p.step}</option>}
-                    {earlier.map((x) => (
-                      <option key={x.name} value={x.name}>
-                        {x.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-              <button className="btn icon ghost" aria-label="Remove" onClick={() => onChange(Object.fromEntries(rows.filter((_, j) => j !== i)))}>
-                <Icon name="minus" />
-              </button>
-            </div>
-            {!p && (
-              <input className="input mono" value={v} aria-label="Expression" placeholder={`len(column("top_ads", "ad_hash")) > 0 ? first("top_ads", "ad_hash") : "none"`} onChange={(e) => set(i, k, e.target.value)} />
-            )}
-            <small className="faint">
-              {pick ? <>Gives {pick.hint}. Use it in a later query as </> : <>Use it in a later query as </>}
-              <code>{`{{ ${k}${pick?.use === "sql_list" ? " | sql_list" : pick ? " | sql" : ""} }}`}</code>
-              {pick?.use === "sql_list" && <> (becomes <code>('a', 'b', …)</code>)</>}.
-            </small>
-          </div>
-        );
-      })}
-      <div>
-        <button
-          className="btn"
-          onClick={() => {
-            let n = rows.length + 1;
-            while (`var_${n}` in value) n++;
-            onChange({ ...value, [rows.length ? `var_${n}` : "ids"]: pickExpr("column", lastStep?.name ?? "step", lastStep?.columns[0] ?? "id") });
-          }}
-        >
-          <Icon name="plus" /> Variable
-        </button>
+    <div className="cs-editor cs-set">
+      <div className="cs-set-wrap" style={{ height: Math.min(320, 18 + lines * 21) }}>
+      <SqlEditor
+        className="cs-sql cs-set-box"
+        value={text}
+        aria-label="Set variables"
+        placeholder={'SET client_name = "Acme"\nSET since = \'2026-10-14\'\nSET ids = (SELECT list(DISTINCT id) FROM {{ ref("clients") }})'}
+        onChange={(t) => {
+          setText(t);
+          const p = parseSetText(t);
+          setError(p.error);
+          if (!p.error) {
+            mine.current = p.assignments;
+            onChange(p.assignments);
+          }
+        }}
+      />
       </div>
-    </div>
-  );
-}
-
-function VarsEditor({ vars, runVars, onChange }: { vars: VarDef[]; runVars: Record<string, unknown> | null; onChange: (v: VarDef[]) => void }) {
-  const set = (i: number, patch: Partial<VarDef>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
-  const produced = runVars ? Object.entries(runVars).filter(([k]) => !vars.some((v) => v.name === k)) : [];
-  return (
-    <section className="chain-vars">
-      <h3>Workflow variables</h3>
-      {vars.map((v, i) => (
-        <VarRow key={i} def={v} onName={(name) => set(i, { name })} onValue={(value) => set(i, { value })} onRemove={() => onChange(vars.filter((_, j) => j !== i))} />
-      ))}
-      <div>
-        <button className="btn" onClick={() => onChange([...vars, { name: `var_${vars.length + 1}`, value: "" }])}>
-          <Icon name="plus" /> Variable
-        </button>
-      </div>
-      {produced.length > 0 && (
-        <div className="muted">
-          After the last run:{" "}
-          {produced.map(([k, v]) => (
-            <code key={k} title={showValue(v)}>
-              {k} = {truncate(showValue(v), 60)}
-            </code>
-          ))}
-        </div>
+      {error ? (
+        <small className="err-text">
+          Line {error.line}: {error.message}. Not saved until it's fixed.
+        </small>
+      ) : (
+        <small className="faint">
+          <code>SET name = value</code>, one per line. A value is text in quotes, a number, a <code>[list]</code>, or DuckDB SQL in parentheses over earlier results that returns one
+          row and one column: <code>{'(SELECT max(day) FROM {{ ref("runs") }})'}</code>, or a list with <code>{'(SELECT list(id) FROM {{ ref("clients") }})'}</code>. Use it as{" "}
+          <code>{"{{ name | sql }}"}</code>, a list as <code>{"{{ name | sql_list }}"}</code>.
+        </small>
       )}
-    </section>
-  );
-}
-
-function VarRow({ def, onName, onValue, onRemove }: { def: VarDef; onName: (n: string) => void; onValue: (v: unknown) => void; onRemove: () => void }) {
-  const [text, setText] = useState(def.value === undefined ? "" : showValue(def.value));
-  return (
-    <div className="cs-assign">
-      <input className="input mono" value={def.name} aria-label="Variable name" onChange={(e) => onName(e.target.value.replace(/[^\w]/g, "_"))} />
-      <span>=</span>
-      <input className="input mono" value={text} aria-label="Value" placeholder={`2026-10-01, 42, ["a", "b"]`} onChange={(e) => setText(e.target.value)} onBlur={() => onValue(parseValue(text))} />
-      <button className="btn icon ghost" aria-label="Remove variable" onClick={onRemove}>
-        <Icon name="minus" />
-      </button>
     </div>
   );
 }
 
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
-function StepDetail({ step, state }: { step?: ChainStep; state?: StepState }) {
+/** Height of a result grid inside a step card: its rows, up to about 12 of them, then it scrolls. */
+const GRID_MAX_H = 34 + 12 * 32 + 14;
+const gridHeight = (rows: number) => Math.min(GRID_MAX_H, 34 + Math.max(rows, 1) * 32 + 14);
+
+const kindOf = (v: unknown): string =>
+  Array.isArray(v) ? `list · ${fmtInt(v.length)}` : v === null || v === undefined ? "null" : typeof v === "string" ? "text" : typeof v === "object" ? "object" : typeof v;
+
+/**
+ * Set variables' output: a foldable Preview of each value it set (name, kind, value), no tabs.
+ * A long value shows its start; "more" shows all of it.
+ */
+function VarsPreview({ state, open, setOpen }: { state: StepState; open: boolean; setOpen: (o: boolean) => void }) {
+  const [full, setFull] = useState<Set<string>>(new Set());
+  const vars = state.vars ?? {};
+  const names = Object.keys(vars);
+  return (
+    <div className={"cs-out-panel vars-preview" + (open ? " open" : "")} onClick={(e) => e.stopPropagation()}>
+      <div className="cd-head">
+        <button className="btn ghost small cd-fold" aria-expanded={open} aria-label={open ? "Fold the preview" : "Show the preview"} onClick={() => setOpen(!open)}>
+          <Icon name={open ? "chevron-down" : "chevron-right"} /> Preview
+        </button>
+        <span className="muted cd-count">
+          {names.length} variable{names.length === 1 ? "" : "s"}
+          {state.cached ? " · cached" : ""}
+        </span>
+      </div>
+      {open && (
+        <div className="vp-rows">
+          {state.status === "running" && !names.length && <div className="empty">Running…</div>}
+          {state.status === "done" && !names.length && <div className="empty">Nothing set.</div>}
+          {names.map((k) => {
+            const text = showValue(vars[k]);
+            const long = text.length > 160;
+            const shown = full.has(k) || !long ? text : text.slice(0, 159) + "…";
+            return (
+              <div key={k} className="vp-row">
+                <code className="vp-name">{k}</code>
+                <span className="faint vp-kind">{kindOf(vars[k])}</span>
+                <span className="mono vp-val">
+                  {shown}
+                  {long && (
+                    <button className="link" onClick={() => setFull((f) => (f.has(k) ? new Set([...f].filter((x) => x !== k)) : new Set(f).add(k)))}>
+                      {full.has(k) ? " less" : " more"}
+                    </button>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A step's result, rendered SQL and tests & log, under the step in its card. Folds away with the
+ * header button; shown once the step has run (or is running).
+ */
+function StepOutput({ step, state }: { step: ChainStep; state?: StepState }) {
   const [tab, setTab] = useState<"result" | "sql" | "tests">("result");
+  // Folded when the workflow opens (results from earlier runs); opens when the step runs now.
+  const [open, setOpen] = useState(false);
+  const status = state?.status;
+  useEffect(() => {
+    if (status === "running") setOpen(true);
+  }, [status]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState<GridCursor | null>(null);
-  if (!step) return <aside className="chain-detail empty">Click a step to see its rendered SQL and result.</aside>;
-  const rows = state?.preview ?? [];
-  const cols = state?.columns ?? [];
-  const nTests = (state?.tests?.length ?? 0) + (state?.logs?.length ?? 0);
+  // Assert makes no table: its pass/fail shows in its header and error.
+  if (!state || state.status === "queued" || step.kind === "assert") return null;
+  if (step.kind === "set-vars") return <VarsPreview state={state} open={open} setOpen={setOpen} />;
+  const rows = state.preview ?? [];
+  const cols = state.columns ?? [];
+  const nTests = (state.tests?.length ?? 0) + (state.logs?.length ?? 0);
+  const pick = (t: typeof tab) => {
+    setTab(t);
+    setOpen(true);
+  };
   return (
-    <aside className="chain-detail">
+    <div className={"cs-out-panel" + (open ? " open" : "")} onClick={(e) => e.stopPropagation()}>
       <div className="cd-head">
-        <b className="mono">{step.name}</b>
-        <div className="seg" role="group" aria-label="Step detail">
-          <button aria-pressed={tab === "result"} onClick={() => setTab("result")}>
+        <button
+          className="btn icon ghost cd-fold"
+          aria-expanded={open}
+          aria-label={open ? "Fold the result" : "Show the result"}
+          title={open ? "Fold" : "Show"}
+          onClick={() => setOpen(!open)}
+        >
+          <Icon name={open ? "chevron-down" : "chevron-right"} />
+        </button>
+        <div className="seg" role="group" aria-label="Step output">
+          <button aria-pressed={open && tab === "result"} onClick={() => pick("result")}>
             Result
           </button>
-          <button aria-pressed={tab === "sql"} onClick={() => setTab("sql")}>
+          <button aria-pressed={open && tab === "sql"} onClick={() => pick("sql")}>
             Rendered SQL
           </button>
-          <button aria-pressed={tab === "tests"} onClick={() => setTab("tests")}>
+          <button aria-pressed={open && tab === "tests"} onClick={() => pick("tests")}>
             Tests & log{nTests ? ` (${nTests})` : ""}
           </button>
         </div>
-        {state?.rowCount !== undefined && rows.length < state.rowCount && <span className="muted">first {fmtInt(rows.length)} of {fmtInt(state.rowCount)}</span>}
+        {state.rowCount !== undefined &&
+          (open && rows.length < state.rowCount ? (
+            <span className="muted">first {fmtInt(rows.length)} of {fmtInt(state.rowCount)}</span>
+          ) : (
+            <span className="muted cd-count">
+              {fmtInt(state.rowCount)} row{state.rowCount === 1 ? "" : "s"}
+              {state.cached ? " · cached" : ""}
+            </span>
+          ))}
       </div>
-      {tab === "result" &&
-        (state?.vars ? (
+      {open && tab === "result" &&
+        (state.vars ? (
           <div className="cd-vars">
             {Object.entries(state.vars).map(([k, v]) => (
               <div key={k}>
@@ -841,39 +1014,41 @@ function StepDetail({ step, state }: { step?: ChainStep; state?: StepState }) {
             ))}
           </div>
         ) : cols.length ? (
-          <DataGrid
-            columns={cols}
-            rowCount={rows.length}
-            value={(r, c) => rows[r]?.[c] ?? null}
-            selection={selection}
-            cursor={cursor}
-            onSelection={(s, c) => {
-              setSelection(s);
-              setCursor(c);
-            }}
-            onCopy={(sel) => void navigator.clipboard.writeText((sel.length ? sel : cursor ? [cursor.row] : []).map((r) => (rows[r] ?? []).map(cellText).join("\t")).join("\n"))}
-            resetKey={`${step.name}:${state?.ms ?? ""}:${state?.status ?? ""}`}
-          />
+          <div className="cd-grid" style={{ height: gridHeight(rows.length) }}>
+            <DataGrid
+              columns={cols}
+              rowCount={rows.length}
+              value={(r, c) => rows[r]?.[c] ?? null}
+              selection={selection}
+              cursor={cursor}
+              onSelection={(s, c) => {
+                setSelection(s);
+                setCursor(c);
+              }}
+              onCopy={(sel) => void navigator.clipboard.writeText((sel.length ? sel : cursor ? [cursor.row] : []).map((r) => (rows[r] ?? []).map(cellText).join("\t")).join("\n"))}
+              resetKey={`${step.name}:${state.ms ?? ""}:${state.status ?? ""}`}
+            />
+          </div>
         ) : (
-          <div className="empty">{state?.file ? `Exported ${state.file}` : state?.status === "done" ? "No result table." : "Run the step to see its result."}</div>
+          <div className="empty">{state.file ? `Exported ${state.file}` : state.status === "running" ? "Running…" : state.status === "done" ? "No result table." : "No result."}</div>
         ))}
-      {tab === "sql" && (state?.renderedSql ? <pre className="cd-sql mono">{state.renderedSql}</pre> : <div className="empty">Rendered SQL appears after the step runs.</div>)}
-      {tab === "tests" && (
+      {open && tab === "sql" && (state.renderedSql ? <pre className="cd-sql mono">{state.renderedSql}</pre> : <div className="empty">Rendered SQL appears after the step runs.</div>)}
+      {open && tab === "tests" && (
         <div className="cd-tests">
           {!nTests && <div className="empty">No tests or log output.</div>}
-          {state?.tests?.map((t, i) => (
+          {state.tests?.map((t, i) => (
             <div key={i} className={t.passed ? "pass" : "fail"}>
               {t.passed ? "✓" : "✗"} {t.name}
             </div>
           ))}
-          {state?.logs?.map((l, i) => (
+          {state.logs?.map((l, i) => (
             <pre key={i} className="mono">
               {l}
             </pre>
           ))}
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 

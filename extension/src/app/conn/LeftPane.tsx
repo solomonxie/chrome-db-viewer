@@ -1,9 +1,10 @@
 // Left pane: Schema (lazy object tree with search highlight and type filter), Collections (named
 // queries: Postman-style), Workflows (multi-step pipelines: dbt-style), and History.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ObjectNode, ObjectPath, ObjectType } from "@core/types";
 import * as db from "../store/db";
+import { readSchemaCache, writeSchemaCache } from "../store/schemaCache";
 import { fmtAgo, fmtMs } from "../lib/format";
 import { Highlight } from "../components/ui";
 import { pathKey, type ConnCtx } from "./model";
@@ -98,11 +99,32 @@ export function LeftPane(props: {
     [driver, nodeTypes],
   );
 
-  // Initial load: root, and auto-expand single containers (one schema, Tables group) like TablePlus.
+  // Open: show the items cached from the last visit right away, then reload them in the
+  // background (the root and every open branch) and swap in the fresh lists. With nothing cached:
+  // load the root and auto-expand single containers (one schema, Tables group) like TablePlus.
+  const cacheReady = useRef(false);
   useEffect(() => {
     let cancelled = false;
-    setTree({ children: new Map(), expanded: new Set(), loading: new Set(), errors: new Map() });
+    cacheReady.current = false;
     (async () => {
+      const cached = await readSchemaCache(ctx.cfg.id);
+      if (cancelled) return;
+      if (cached?.children[pathKey([])]) {
+        const children = new Map(Object.entries(cached.children));
+        for (const nodes of children.values()) for (const n of nodes) nodeTypes.set(pathKey(n.path), n.type);
+        setTree({ children, expanded: new Set(cached.expanded), loading: new Set(), errors: new Map() });
+        cacheReady.current = true;
+        // Root first, then the open branches, each replacing its cached list when it arrives.
+        const open = cached.expanded.filter((k) => children.has(k));
+        await load([]);
+        await Promise.all(open.map((k) => load(JSON.parse(k) as ObjectPath)));
+        if (cancelled) return;
+        // Branches cached but folded are dropped, so opening one loads it fresh.
+        setTree((t) => ({ ...t, children: new Map([...t.children].filter(([k]) => k === pathKey([]) || t.expanded.has(k))) }));
+        return;
+      }
+      setTree({ children: new Map(), expanded: new Set(), loading: new Set(), errors: new Map() });
+      cacheReady.current = true;
       let level = await load([]);
       const expand: string[] = [];
       for (let depth = 0; depth < 3 && !cancelled; depth++) {
@@ -117,7 +139,14 @@ export function LeftPane(props: {
     return () => {
       cancelled = true;
     };
-  }, [load, props.refreshKey]);
+  }, [load, props.refreshKey, ctx.cfg.id, nodeTypes]);
+
+  // Keep the cache in step with what's loaded and open (debounced).
+  useEffect(() => {
+    if (!cacheReady.current || !tree.children.has(pathKey([]))) return;
+    const t = setTimeout(() => void writeSchemaCache(ctx.cfg.id, tree.children, tree.expanded), 500);
+    return () => clearTimeout(t);
+  }, [tree.children, tree.expanded, ctx.cfg.id]);
 
   const toggle = (n: ObjectNode) => {
     const k = pathKey(n.path);

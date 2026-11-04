@@ -136,6 +136,8 @@ export interface RenderResult {
   refs: string[];
   /** Raw {{ x }} without a sql/ident filter in a value position, for the amber underline. */
   warnings: { message: string; varName?: string }[];
+  /** Variables whose value is output (not only tested in {% if %}): these need a value. */
+  requiredVars?: string[];
 }
 
 /** Message contract with the script sandbox page (src/sandbox/). */

@@ -41,3 +41,7 @@ test("duplicate step names are refused", () => {
   c.steps[1]!.name = "sales";
   expect(() => buildGraph(c)).toThrow(`Two steps are named "sales"`);
 });
+
+test("a Set variables step naming a step that doesn't exist says which SET line", () => {
+  expect(() => buildGraph(loadChain("set_vars_missing_step.json"))).toThrow(`SET bq_project_name in step "inputs" refers to "step", which is not a step in this workflow`);
+});

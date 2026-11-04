@@ -1,0 +1,12 @@
+{
+  "collection": {
+    "id": "col_tr", "name": "Reports", "vars": [{ "name": "token", "secret": true, "value": "s3cret" }, { "name": "days", "value": 7 }],
+    "environments": [], "createdAt": 1, "updatedAt": 1
+  },
+  "folders": [{ "id": "fld_tr_daily", "collectionId": "col_tr", "name": "daily" }],
+  "queries": [
+    { "id": "nq_tr_top", "collectionId": "col_tr", "name": "top_ads", "sql": "SELECT 1", "vars": [], "updatedAt": 1 },
+    { "id": "nq_tr_rev", "collectionId": "col_tr", "folderId": "fld_tr_daily", "name": "revenue", "sql": "SELECT 2", "vars": [], "updatedAt": 1 }
+  ],
+  "chain": { "id": "ch_tr", "name": "Weekly report", "steps": [], "vars": [], "updatedAt": 1 }
+}

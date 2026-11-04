@@ -6,9 +6,9 @@ import type { SortSpec } from "../lib/filters";
 
 export type Sheet =
   | { kind: "source"; title: string; where: string[]; sort: SortSpec[] }
-  | { kind: "summary"; title: string; where: string[] }
+  | { kind: "summary"; title: string; where: string[]; sort?: SortSpec[] }
   /** Free SQL typed in the SQL bar, run as is against the file's table. */
-  | { kind: "query"; title: string; sql: string; where: string[] };
+  | { kind: "query"; title: string; sql: string; where: string[]; sort?: SortSpec[] };
 
 export function sourceSheet(table: string): Sheet {
   return { kind: "source", title: table, where: [], sort: [] };
@@ -16,17 +16,23 @@ export function sourceSheet(table: string): Sheet {
 
 const whereSql = (w: string[]) => (w.length ? ` WHERE ${w.map((x) => (w.length > 1 ? `(${x})` : x)).join(" AND ")}` : "");
 
+const orderSql = (sort: SortSpec[] | undefined, dialect: SqlDialect) =>
+  sort?.length ? ` ORDER BY ${sort.map((s) => `${dialect.quoteIdent(s.column)} ${s.dir.toUpperCase()}`).join(", ")}` : "";
+
 export function sheetSql(sheet: Sheet, table: string, dialect: SqlDialect, limit?: number): string {
   const t = dialect.quoteIdent(table);
   switch (sheet.kind) {
-    case "source": {
-      const order = sheet.sort.length ? ` ORDER BY ${sheet.sort.map((s) => `${dialect.quoteIdent(s.column)} ${s.dir.toUpperCase()}`).join(", ")}` : "";
-      return `SELECT * FROM ${t}${whereSql(sheet.where)}${order}${limit ? ` LIMIT ${limit}` : ""}`;
+    case "source":
+      return `SELECT * FROM ${t}${whereSql(sheet.where)}${orderSql(sheet.sort, dialect)}${limit ? ` LIMIT ${limit}` : ""}`;
+    case "summary": {
+      const base = sheet.where.length ? `SUMMARIZE SELECT * FROM ${t}${whereSql(sheet.where)}` : `SUMMARIZE ${t}`;
+      return sheet.sort?.length ? `SELECT * FROM (${base})${orderSql(sheet.sort, dialect)}` : base;
     }
-    case "summary":
-      return sheet.where.length ? `SUMMARIZE SELECT * FROM ${t}${whereSql(sheet.where)}` : `SUMMARIZE ${t}`;
-    case "query":
-      return sheet.sql;
+    case "query": {
+      // Sorting a SQL sheet sorts its result: the query runs as a subquery.
+      if (!sheet.sort?.length) return sheet.sql;
+      return `SELECT * FROM (\n${sheet.sql.replace(/;\s*$/, "")}\n) AS q${orderSql(sheet.sort, dialect)}`;
+    }
   }
 }
 
@@ -44,7 +50,10 @@ export function summarySheet(parent: Sheet): Sheet {
 
 export function querySheet(sql: string): Sheet {
   const oneLine = sql.trim().replace(/\s+/g, " ");
-  return { kind: "query", title: oneLine.length > 40 ? oneLine.slice(0, 39) + "…" : oneLine, sql: sql.trim(), where: [] };
+  // The breadcrumb shows what's after FROM "sheet" (the part that differs), or the start of the query.
+  const tail = /^select\s+\*\s+from\s+"?sheet"?\s+(.+)$/i.exec(oneLine)?.[1];
+  const title = tail ?? oneLine;
+  return { kind: "query", title: title.length > 40 ? title.slice(0, 39) + "…" : title, sql: sql.trim(), where: [] };
 }
 
 export function filteredSheet(parent: Sheet, condition: string, label: string): Sheet {

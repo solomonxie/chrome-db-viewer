@@ -1,0 +1,26 @@
+{
+  "cached": {
+    "id": "bq_prod",
+    "children": {
+      "[]": [
+        { "path": ["acme-analytics"], "name": "acme-analytics", "type": "database", "hasChildren": true },
+        { "path": ["acme-old-project"], "name": "acme-old-project", "type": "database", "hasChildren": true }
+      ],
+      "[\"acme-analytics\"]": [
+        { "path": ["acme-analytics", "events"], "name": "events", "type": "schema", "hasChildren": true }
+      ]
+    },
+    "expanded": ["[\"acme-analytics\"]"],
+    "at": 1793000000000
+  },
+  "fresh": {
+    "[]": [
+      { "path": ["acme-analytics"], "name": "acme-analytics", "type": "database", "hasChildren": true },
+      { "path": ["acme-new-project"], "name": "acme-new-project", "type": "database", "hasChildren": true }
+    ],
+    "[\"acme-analytics\"]": [
+      { "path": ["acme-analytics", "events"], "name": "events", "type": "schema", "hasChildren": true },
+      { "path": ["acme-analytics", "orders"], "name": "orders", "type": "schema", "hasChildren": true }
+    ]
+  }
+}

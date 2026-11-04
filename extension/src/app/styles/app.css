@@ -475,11 +475,14 @@ table.plain td.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .sheet-sql-hint code { font-family: var(--font-mono); color: var(--fg); }
 .sheet-sql .sheet-sqled { flex: 1; min-height: 0; height: auto; border-top: 1px solid var(--line-soft); overflow: visible; }
 .sheet-sql .sheet-sqled .sqled-layer, .sheet-sql .sheet-sqled .sqled-input { padding: 8px 12px; }
-.crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0; flex: 1 1 240px; }
+.crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; overflow: hidden; min-width: 0; flex: 1 1 240px; }
 .crumbs button { border: 0; background: none; padding: 3px 8px; min-height: 28px; border-radius: var(--r); font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumbs button:hover { background: var(--hover); color: var(--fg); }
 .crumbs button[aria-current="true"] { color: var(--fg-strong); font-weight: 600; background: var(--hover); }
-.crumbs .sep { color: var(--faint); }
+.crumbs .sep { color: var(--faint); flex: none; }
+.crumbs button { flex: 0 1 auto; min-width: 0; }
+.crumbs button:first-of-type, .crumbs .crumb-more { flex: none; }
+.crumb-kind { font-family: var(--font-ui); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent-text); margin-right: 6px; }
 
 /* ---------- settings ---------- */
 .settings { height: 100%; overflow: auto; display: flex; justify-content: center; padding: 32px 24px; }
@@ -524,21 +527,38 @@ table.plain td.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .btn.icon[aria-pressed="true"] .ico { color: var(--accent-text); }
 
 /* ---------- chains (§3.15) ---------- */
-.chain-page { height: 100%; display: grid; grid-template-rows: auto 1fr; background: var(--bg); min-height: 0; }
-.chain-top .chain-name { font-size: 16px; font-weight: 600; min-width: 200px; max-width: 420px; border-color: transparent; background: transparent; }
+.chain-page { height: 100%; overflow: auto; background: var(--bg); min-height: 0; }
+.chain-page > .chain-top { position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.chain-top .chain-name { font-size: 16px; font-weight: 600; min-width: 200px; max-width: none; flex: 1 1 auto; text-overflow: ellipsis; border-color: transparent; background: transparent; }
 .chain-top .chain-name:hover, .chain-top .chain-name:focus { border-color: var(--line); background: var(--surface); }
 .chain-top .spacer, .chain-step .spacer { flex: 1; }
-.chain-body { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(360px, 46%); min-height: 0; }
-.chain-steps { overflow: auto; padding: 14px 16px 40px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.chain-body { max-width: 1400px; }
+.chain-steps { padding: 14px 16px 40px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .chain-step { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .chain-step.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.chain-step.st-failed { border-left: 4px solid var(--del-fg); }
-.chain-step.st-done { border-left: 4px solid var(--add-fg); }
-.chain-step.st-running { border-left: 4px solid var(--accent); }
+.chain-step.st-failed { border-color: var(--del-fg); border-left-color: var(--kc); }
 .cs-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cs-idx { width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); color: var(--muted); display: inline-grid; place-items: center; font-size: 13px; flex: none; }
-.cs-name { width: 180px; font-weight: 600; }
-.cs-kind { font-size: 13px; color: var(--muted); }
+.cs-name { width: 200px; font-weight: 600; height: 26px; }
+/* Step type: a coloured tag and a matching left edge, so a card's kind reads at a glance. */
+.chain-step { --kc: var(--muted); border-left: 3px solid var(--kc); }
+.chain-step.k-query { --kc: var(--accent); }
+.chain-step.k-transform-sql, .chain-step.k-transform-script { --kc: #a371f7; }
+.chain-step.k-set-vars { --kc: var(--warn); }
+.chain-step.k-assert { --kc: var(--add-fg); }
+.chain-step.k-export { --kc: var(--faint); }
+.cs-kind { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--kc); background: color-mix(in srgb, var(--kc) 14%, transparent); padding: 2px 8px; border-radius: 5px; }
+.cs-conn { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; min-width: 0; }
+.cs-conn b { font-weight: 600; color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-conn .engine { width: 20px; height: 20px; font-size: 10px; }
+.cs-env { font-size: 11px; font-weight: 600; color: var(--env-prod); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; }
+.cs-acts { display: inline-flex; gap: 2px; opacity: .45; transition: opacity .12s; }
+.chain-step:hover .cs-acts, .chain-step.sel .cs-acts, .cs-acts:focus-within { opacity: 1; }
+.cs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12.5px; }
+.cs-foot:empty { display: none; }
+.cs-foot code { background: var(--surface-2); border-radius: 4px; padding: 1px 6px; font-size: 12px; margin-left: 3px; }
+.cs-out { display: inline-flex; align-items: center; gap: 6px; }
+.err-text { color: var(--del-fg); }
 .cs-stats { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
 .cs-deps { font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .cs-deps code, .chain-vars code { background: var(--surface-2); border-radius: 4px; padding: 1px 6px; font-size: 12.5px; }
@@ -549,14 +569,11 @@ table.plain td.mono { font-family: var(--font-mono); font-size: 12.5px; }
 /* Workflow step editors: drag the bottom-right corner to make one taller. */
 .cs-sql { height: 160px; min-height: 60px; max-height: 80vh; resize: vertical; border: 1px solid var(--line-soft); border-radius: 7px; }
 .cs-sql.short { height: 90px; }
+.cs-set { gap: 4px; }
+.cs-set-wrap { display: flex; flex-direction: column; min-height: 39px; resize: vertical; overflow: hidden; }
+.cs-set-wrap .cs-sql { height: 100%; flex: 1; resize: none; }
 .cs-sql-ro { margin: 0; padding: 8px 10px; background: var(--surface-2); border-radius: 7px; max-height: 160px; overflow: auto; font-size: 13.5px; white-space: pre-wrap; }
 .cs-script { min-height: 120px; resize: vertical; }
-.cs-explain { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
-.cs-var { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--surface-2); }
-.cs-var-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.cs-var-row .input { width: auto; min-width: 0; }
-.cs-var-name { width: 140px !important; }
-.cs-var-col { width: 140px !important; }
 .cs-cols { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); }
 .cs-cols .mono { margin-left: 6px; color: var(--fg); }
 .cs-assign { display: grid; grid-template-columns: minmax(120px, 200px) auto 1fr auto; gap: 6px; align-items: center; }
@@ -569,11 +586,17 @@ table.plain td.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .chip-status.done { background: var(--add-bg); color: var(--add-fg); }
 .chip-status.failed { background: var(--del-bg); color: var(--del-fg); }
 .chip-status.skipped { color: var(--faint); }
-.chain-detail { border-left: 1px solid var(--line); background: var(--surface); display: grid; grid-template-rows: auto 1fr; min-height: 0; min-width: 0; }
-.chain-detail.empty { display: block; }
-.cd-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
-.cd-sql { margin: 0; padding: 12px; overflow: auto; font-size: 13.5px; white-space: pre-wrap; }
-.cd-vars, .cd-tests { padding: 12px; overflow: auto; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.cs-out-panel { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); min-width: 0; overflow: hidden; }
+.cd-head { display: flex; align-items: center; gap: 10px; padding: 4px 8px; flex-wrap: wrap; }
+.cs-out-panel.open .cd-head { border-bottom: 1px solid var(--line-soft); }
+.cd-grid { display: flex; flex-direction: column; min-height: 0; }
+.cs-out-panel .empty { padding: 14px; }
+.vp-rows { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 14px; padding: 8px 12px; font-size: 13px; max-height: 320px; overflow: auto; }
+.vp-row { display: contents; }
+.vp-val { white-space: pre-wrap; word-break: break-all; }
+.vp-val .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; font-family: var(--font-ui); }
+.cd-sql { margin: 0; padding: 12px; overflow: auto; max-height: 420px; font-size: 13.5px; white-space: pre-wrap; }
+.cd-vars, .cd-tests { padding: 12px; overflow: auto; max-height: 420px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .cd-tests .pass { color: var(--add-fg); }
 .cd-tests .fail { color: var(--del-fg); }
 .cd-tests pre { margin: 0; font-size: 13px; }
@@ -581,7 +604,6 @@ table.plain td.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .chain-est th, .chain-est td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line-soft); }
 .chain-est tr.over td { color: var(--warn); font-weight: 600; }
 .chain-est tfoot td { border-bottom: 0; }
-@media (max-width: 900px) { .chain-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(300px, 1fr); } .chain-detail { border-left: 0; border-top: 1px solid var(--line); } }
 
 /* Collections (DESIGN.md §3.14): tree, template editor, parameters, rendered/tests/console tabs */
 .tk-jinja { color: var(--accent-text); background: var(--accent-soft); border-radius: 3px; }
@@ -710,13 +732,46 @@ button.wf-tag:hover { text-decoration: underline; }
 .editor-page { height: 100%; }
 
 /* Import workflow dialog */
-.wf-imp-desc { white-space: pre-wrap; }
+.wf-imp-desc { white-space: pre-wrap; margin: 0; }
+.wf-imp-desc.folded { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.wf-imp-desc-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.wf-imp-desc.open { max-height: 40vh; overflow: auto; }
 .wf-imp-warn { color: var(--warn) !important; }
-.wf-imp-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow: auto; font-size: 13px; }
+.wf-imp-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; max-height: 160px; overflow: auto; font-size: 13px; }
 .wf-imp-conns { display: flex; flex-direction: column; gap: 8px; }
 .wf-imp-conn { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; font-size: 13px; }
-.chain-desc { margin: 0; padding: 8px 16px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }
-.cs-desc { margin: 2px 0 6px; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; }
+.desc { display: flex; flex-direction: column; gap: 2px; }
+.desc p { margin: 0; white-space: pre-wrap; }
+.desc.folded p { display: -webkit-box; -webkit-line-clamp: var(--desc-lines, 3); -webkit-box-orient: vertical; overflow: hidden; }
+.desc-acts { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.desc-acts .btn.small { padding: 2px 8px; font-size: 12.5px; color: var(--muted); }
+.desc-editing { display: flex; flex-direction: column; gap: 6px; }
+.desc-edit { width: 100%; box-sizing: border-box; font: inherit; line-height: 1.5; resize: vertical; white-space: pre-wrap; }
+.desc-add { align-self: flex-start; font-size: 12.5px; color: var(--faint); }
+.chain-desc, .chain-desc-editing, .chain-desc-add { margin: 8px 16px 0; font-size: 13px; line-height: 1.5; max-width: calc(100% - 32px); }
+.cs-desc { font-size: 12.5px; line-height: 1.45; }
 .split-btn { display: inline-flex; }
 .split-btn > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-btn > .btn.icon { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; min-width: 26px; padding: 0 4px; }
+
+/* Cell box: a cell's whole value over the grid (DataGrid) */
+.vgrid .cellbox { position: absolute; z-index: 5; display: flex; flex-direction: column; background: var(--elev); border: 1px solid var(--accent); border-radius: 8px; box-shadow: var(--shadow); font-family: var(--font-ui); max-height: 320px; }
+.cellbox-head, .cellbox-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; }
+.cellbox-head b { font-weight: 600; color: var(--fg-strong); }
+.cellbox-head small { color: var(--faint); font-family: var(--font-mono); }
+.cellbox-text { flex: 1; min-height: 40px; resize: none; border: 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); padding: 8px 10px; background: var(--field); color: var(--fg); font-size: 12.5px; line-height: 18px; white-space: pre-wrap; word-break: break-word; overflow: auto; outline: none; }
+.cellbox-text:read-only { cursor: text; }
+.cellbox.editing .cellbox-text { background: var(--bg); }
+
+/* Settings › Trash */
+.trash-head { display: flex; align-items: center; gap: 8px; }
+.trash-head h2 { margin: 0; }
+.trash-empty { font-size: 14px; padding: 6px 0; }
+.trash-list { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: 8px; overflow: hidden; }
+.trash-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.trash-row:first-child { border-top: 0; }
+.trash-kind { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.trash-name { display: flex; flex-direction: column; min-width: 0; }
+.trash-name b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .trash-row { grid-template-columns: minmax(0, 1fr) auto auto; } .trash-kind, .trash-when { display: none; } }

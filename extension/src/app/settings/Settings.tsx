@@ -16,6 +16,7 @@ import { RestoreBanner, useRestoreOffer } from "./RestoreBanner";
 import { Icon } from "../components/Icon";
 import { Appearance } from "./Appearance";
 import { BackupSection } from "./BackupSection";
+import { TrashSection } from "./TrashSection";
 
 type GroupKey = keyof typeof PREVIEW_GROUPS;
 
@@ -227,6 +228,8 @@ export function Settings({ section }: { section?: string }) {
         </section>
 
         <BackupSection />
+
+        <TrashSection />
 
         <section id="settings-runner">
           <h2>dbui runner</h2>

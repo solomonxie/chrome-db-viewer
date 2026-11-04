@@ -99,7 +99,10 @@ class BrowserEngine implements DuckEngine {
     return this.db.registerFileBuffer(name, bytes);
   }
   registerEmptyFileBuffer(name: string) {
-    return this.db.registerEmptyFileBuffer(name);
+    // AsyncDuckDB.registerEmptyFileBuffer is a no-op in this version, so COPY … TO logs
+    // "Buffering missing file" (which lands in chrome://extensions Errors) before making the
+    // buffer itself. Registering an empty buffer first does the same without the warning.
+    return this.db.registerFileBuffer(name, new Uint8Array(0));
   }
   registerOPFSFile(path: string) {
     return this.db.registerOPFSFileName(path);

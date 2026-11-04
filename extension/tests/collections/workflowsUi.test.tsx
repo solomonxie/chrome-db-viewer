@@ -147,12 +147,16 @@ test("the workflow view has no collection, and its query steps can pick named qu
   expect($(".chain-top .wf-label")!.textContent).toBe("Workflow");
   expect($(".wf-home")).toBeNull();
   expect($("select[aria-label='Change collection']")).toBeNull();
-  const pick = all<HTMLSelectElement>(".chain-step select")[0]!;
-  await until(() => [...pick.options].length > 2);
+  await until(() => !!$("select[aria-label='Saved query']"));
+  const pick = $<HTMLSelectElement>("select[aria-label='Saved query']")!;
+  expect(pick.options[0]!.textContent).toBe("None: SQL written below");
   expect([...pick.options].map((o) => o.textContent)).toEqual(expect.arrayContaining(["Ad performance/top_ads", "Finance/revenue"]));
-  // Workflow variables are always shown above the steps; there is no Variables toggle.
-  expect(visibleText()).toContain("Workflow variables");
+  // Inputs are Set variables steps; there is no separate Workflow variables panel.
+  expect(visibleText()).not.toContain("Workflow variables");
   expect(byText(".chain-top .btn", "Variables")).toBeUndefined();
+  // No side panel: a step's result, SQL and log go in its own card once it has run.
+  expect($(".chain-detail")).toBeNull();
+  expect($(".cs-out-panel")).toBeNull();
   expect(visibleText()).not.toMatch(/chain/i);
 });
 
@@ -218,18 +222,28 @@ test("Run all in a query tab shows one result tab per statement and stops at the
   expect($(".center .err")).toBeNull();
 });
 
-test("Set variables shows each simple assignment as Take / column / from step pickers and how to use it", async () => {
+test("Set variables is one SET box: it shows each assignment as a line and saves what you type", async () => {
   const chain = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/chains/set_vars_lookup.json"), "utf8"));
   await putChainRow(chain);
   await mount(<App />, "#workflow/ch_vars");
-  await until(() => all(".cs-var").length === 6);
-  const rows = all<HTMLElement>(".cs-var");
-  const take = (r: HTMLElement) => r.querySelector<HTMLSelectElement>("select[aria-label='Take']")!.value;
-  expect(rows.map(take)).toEqual(["column", "first", "max", "count", "__expr", "__expr"]);
-  expect(rows[0]!.querySelector<HTMLSelectElement>("select[aria-label='Step']")!.value).toBe("top_ads");
-  expect(rows[0]!.textContent).toContain("{{ top_ad_ids | sql_list }}");
-  expect(rows[1]!.textContent).toContain("{{ best | sql }}");
-  expect(rows[4]!.querySelector<HTMLInputElement>("input[aria-label='Expression']")!.value).toBe('"top " + n');
+  await until(() => !!$("textarea[aria-label='Set variables']"));
+  const box = $<HTMLTextAreaElement>("textarea[aria-label='Set variables']")!;
+  expect(box.value.split("\n")).toEqual([
+    'SET top_ad_ids = column("top_ads", "ad_hash")',
+    'SET best = first("top_ads", "ad_hash")',
+    'SET max_rev = max("top_ads", "revenue")',
+    'SET n = count("top_ads")',
+    'SET label = "top " + n',
+    'SET fixed = {"k": [1, 2]}',
+  ]);
+  // A mistake is shown and not saved; fixing it saves.
+  await act(async () => type(box, box.value + "\nSET broken ="));
+  expect($(".cs-set .err-text")!.textContent).toBe("Line 7: broken has no value after =. Not saved until it's fixed.");
+  await act(async () => type(box, box.value.replace("SET broken =", 'SET since = (SELECT max(day) FROM {{ ref("top_ads") }})')));
+  expect($(".cs-set .err-text")).toBeNull();
+  await wait(700);
+  const saved = (await listChainRows()).find((c) => c.id === "ch_vars")!;
+  expect(saved.steps[1]!.assignments!.since).toBe('(SELECT max(day) FROM {{ ref("top_ads") }})');
   expect(all(".chain-add .btn").map((b) => b.textContent?.trim())).toEqual(["Query", "Transform: DuckDB", "Transform: JavaScript", "Set variables", "Export", "Assert"]);
 });
 
@@ -251,8 +265,8 @@ async function importFile(name: string) {
   vi.mocked(document.createElement).mockRestore();
 }
 
-test("importing a file with the name of an existing workflow asks before replacing it", async () => {
-  vi.spyOn(window, "open").mockImplementation(() => null);
+test("importing a file with the name of an existing workflow never replaces it: the import is named (2), then (3)", async () => {
+  const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
   await openConnection();
   await click(byText(".psec-head", "Workflows"));
   await until(() => all(".wf-item").length >= 2);
@@ -260,34 +274,121 @@ test("importing a file with the name of an existing workflow asks before replaci
   await importFile("import_compare.dbui-workflow.json");
   await until(() => !!$(".modal .wf-imp-warn"));
   expect($(".modal h3")!.textContent).toBe('Import workflow "Month close"');
+  // The file's description is folded to a few lines.
+  expect($(".modal .wf-imp-desc")?.classList.contains("folded") ?? true).toBe(true);
+  expect($(".modal .wf-imp-warn")!.textContent).toContain("imported as Month close (2)");
   expect(all(".wf-imp-steps li").map((l) => l.querySelector(".mono")!.textContent)).toEqual(["bq", "pg", "diff", "has_rows"]);
   expect(all<HTMLSelectElement>(".wf-imp-conn select").map((s) => s.getAttribute("aria-label"))).toEqual(["Connection for warehouse", "Connection for app"]);
-
-  // Replace asks first; Back returns without touching the workflow.
-  await click(byText(".modal .btn", "Replace existing…"));
-  expect($(".modal h3")!.textContent).toBe('Replace "Month close"?');
-  await click(byText(".modal .btn", "Back"));
-  expect((await listChainRows()).find((c) => c.id === before.id)!.steps.length).toBe(before.steps.length);
-
-  await click(byText(".modal .btn", "Replace existing…"));
-  await click(byText(".modal .btn", "Replace"));
+  expect(all(".modal .btn").map((b) => b.textContent?.trim())).toEqual(["Cancel", "Import"]);
+  await click(byText(".modal .btn", "Import"));
   await until(() => !$(".modal"));
-  const rows = (await listChainRows()).filter((c) => c.name.startsWith("Month close"));
-  expect(rows.map((c) => c.id)).toEqual([before.id]);
-  expect(rows[0]!.steps.map((s) => s.name)).toEqual(["bq", "pg", "diff", "has_rows"]);
-  // Put the fixture workflow back for the other tests.
-  await putChainRow(before);
+
+  await importFile("import_compare.dbui-workflow.json");
+  await until(() => !!byText(".modal .btn", "Import"));
+  expect($(".modal .wf-imp-warn")!.textContent).toContain("imported as Month close (3)");
+  await click(byText(".modal .btn", "Import"));
+  await until(() => !$(".modal"));
+
+  const rows = await listChainRows();
+  expect(rows.find((c) => c.id === before.id)).toEqual(before);
+  expect(rows.map((c) => c.name)).toEqual(expect.arrayContaining(["Month close", "Month close (2)", "Month close (3)"]));
+  expect(rows.find((c) => c.name === "Month close (2)")!.steps.map((s) => s.name)).toEqual(["inputs", "bq", "pg", "diff", "has_rows"]);
+  // Imports show up in the list; nothing opens on its own.
+  await until(() => all(".wf-item").some((r) => r.textContent?.includes("Month close (3)")));
+  expect(openSpy).not.toHaveBeenCalled();
+  expect(location.hash).not.toMatch(/#workflow\//);
 });
 
-test("Keep both imports the file under a new name", async () => {
-  vi.spyOn(window, "open").mockImplementation(() => null);
-  await openConnection();
-  await click(byText(".psec-head", "Workflows"));
-  await until(() => all(".wf-item").length >= 2);
-  await importFile("import_compare.dbui-workflow.json");
-  await until(() => !!byText(".modal .btn", "Keep both"));
-  await click(byText(".modal .btn", "Keep both"));
-  await until(() => !$(".modal"));
-  const names = (await listChainRows()).map((c) => c.name);
-  expect(names).toEqual(expect.arrayContaining(["Month close", "Month close 2"]));
+test("a step's description is edited from its ⋯ menu; the workflow's has an Edit button and folds later", async () => {
+  await mount(<App />, "#workflow/ch_notes");
+  await until(() => all(".chain-step").length === 2);
+  const note = () => $<HTMLElement>(".desc.cs-desc")!;
+  // No Edit button on the step note, and clicking the text does nothing.
+  expect(note().querySelector("button[aria-label='Edit step description']")).toBeNull();
+  await click(note().querySelector("p")!);
+  expect($("textarea[aria-label='Step description']")).toBeNull();
+  // The workflow description keeps its Edit button and shows 8 lines before folding.
+  expect($(".desc.chain-desc button[aria-label='Edit workflow description']")).not.toBeNull();
+  expect($<HTMLElement>(".desc.chain-desc")!.style.getPropertyValue("--desc-lines")).toBe("8");
+  expect(note().style.getPropertyValue("--desc-lines")).toBe("3");
+
+  const menu = async (i: number, label: string) => {
+    await click(all("button[aria-label='Step actions']")[i]!);
+    await click(byText(".menu [role=menuitem]", label)!);
+  };
+  await menu(0, "Edit description");
+  const box = $<HTMLTextAreaElement>("textarea[aria-label='Step description']")!;
+  expect(box.value).toBe("since: first day to look at.");
+  await act(async () => type(box, "since: the first day."));
+  await click(byText(".desc-editing .btn", "Save")!);
+  await until(() => $(".desc.cs-desc p")?.textContent === "since: the first day.");
+
+  // Cancel keeps the old text.
+  await menu(0, "Edit description");
+  await act(async () => type($<HTMLTextAreaElement>("textarea[aria-label='Step description']")!, "thrown away"));
+  await click(byText(".desc-editing .btn", "Cancel")!);
+  expect($(".desc.cs-desc p")!.textContent).toBe("since: the first day.");
+
+  // A step without a note: Add description.
+  await menu(1, "Add description");
+  await act(async () => type($<HTMLTextAreaElement>("textarea[aria-label='Step description']")!, "Stops the run when false."));
+  await click(byText(".desc-editing .btn", "Save")!);
+  await until(() => all(".desc.cs-desc p").length === 2);
+  await wait(700);
+  const saved = (await listChainRows()).find((c) => c.id === "ch_notes")!;
+  expect(saved.steps.map((s) => s.description)).toEqual(["since: the first day.", "Stops the run when false."]);
+});
+
+test("on open, a step's earlier result is folded and its row count shows; Set variables has no result panel", async () => {
+  const { chainCache } = await import("../../src/chains/cache");
+  chainCache("ch_daily").set("top", {
+    key: "k",
+    result: { columns: [{ name: "ad_hash", type: "VARCHAR", nullable: true }], rows: [["a1"], ["a2"], ["a3"]] },
+    resultHash: "h",
+    rowCount: 3,
+    ms: 12,
+    at: 1,
+  });
+  await mount(<App />, "#workflow/ch_daily");
+  await until(() => !!$(".cs-out-panel"));
+  const panel = $(".cs-out-panel")!;
+  expect(panel.classList.contains("open")).toBe(false);
+  expect(panel.querySelector(".cd-count")!.textContent).toBe("3 rows · cached");
+  expect(panel.querySelector(".cd-grid")).toBeNull();
+  await click(panel.querySelector("button[aria-label='Show the result']")!);
+  expect($(".cs-out-panel")!.classList.contains("open")).toBe(true);
+  chainCache("ch_daily").clear();
+});
+
+test("a step's graph problem shows on that step's card, not above the steps", async () => {
+  const chain = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/chains/set_vars_missing_step.json"), "utf8"));
+  await putChainRow(chain);
+  await mount(<App />, "#workflow/ch_bad_set");
+  await until(() => all(".chain-step").length === 2);
+  expect($(".chain-steps > .err")).toBeNull();
+  expect(all(".chain-step")[0]!.querySelector(".err")!.textContent).toBe(
+    `SET bq_project_name in step "inputs" refers to "step", which is not a step in this workflow. Nothing runs until it's fixed.`,
+  );
+  expect(all(".chain-step")[1]!.querySelector(".err")).toBeNull();
+});
+
+test("Set variables shows a Preview of its values, Assert has no panel; headers say how many set / passed", async () => {
+  const { runChainToEnd } = await import("../../src/chains/runner");
+  const chain = (await listChainRows()).find((c) => c.id === "ch_notes")!;
+  // ch_notes: inputs (set-vars) then check (assert true). Runs without connections.
+  const deps = { render: (await import("../../src/collections/render")).render } as never;
+  const sum = await runChainToEnd(chain, {}, deps);
+  expect(sum.status).toBe("done");
+  await mount(<App />, "#workflow/ch_notes");
+  await until(() => all(".chain-step .cs-stats").some((e) => e.textContent?.includes("passed")));
+  const stats = all(".chain-step .cs-stats").map((e) => e.textContent?.replace(/ · .*/, ""));
+  expect(stats).toEqual(["1 set", "passed"]);
+  // Set variables: a folded Preview, no tabs. Assert: nothing.
+  const panels = all(".cs-out-panel");
+  expect(panels).toHaveLength(1);
+  expect(panels[0]!.classList.contains("vars-preview")).toBe(true);
+  expect(panels[0]!.querySelector(".seg")).toBeNull();
+  await click(panels[0]!.querySelector("button[aria-label='Show the preview']")!);
+  expect(all(".vp-row").map((r) => r.textContent)).toEqual(["sincetext2026-10-14"]);
+  (await import("../../src/chains/cache")).clearCache("ch_notes");
 });

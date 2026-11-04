@@ -408,9 +408,16 @@ asks once per session to read them again.
 - Bigger files stay as a view over the file. Each sort or filter re-scans the file, with a
   progress bar and Stop.
 
+**Sorting:** clicking a column header sorts every sheet (asc, desc, off; ⇧-click adds a key):
+the file's own sheet and filtered sheets in their `SELECT`, a Summary or SQL sheet by running
+its query as a subquery with an `ORDER BY` around it.
+
 **Sheet stack (from VisiData):** every derived view opens as a new sheet on top of the
 current one. A breadcrumb shows the stack (`orders.csv › summary › status = 'paid'`)
-and `Esc` (or `q` with VisiData keys) goes back one.
+and `Esc` (or `q` with VisiData keys) goes back one. Running SQL from a SQL sheet replaces that
+sheet instead of stacking another. The breadcrumb stays on one line: with more than 4 sheets
+it shows the first, a **…** menu with the middle ones, and the last two. A SQL crumb is tagged
+**SQL** and titled by what follows `FROM "sheet"`; hovering shows the full query.
 
 | Feature | What you get | dbui key | VisiData key |
 |---|---|---|---|
@@ -431,6 +438,18 @@ and `Esc` (or `q` with VisiData keys) goes back one.
 No other scheme becomes a link. Double-clicking a column's header edge fits the column to its
 longest value (up to 900px). The top bar wraps its buttons onto a second line when the window
 is narrow.
+
+**Cell box** (every result grid: file sheets, query results, tables, workflow previews).
+Clicking a cell still only moves the cursor and selects the row. **Space**, **Enter** or a
+**double-click** opens the cell box over the cell:
+- **Layout:** at least 460px wide and up to 320px tall, and it scrolls.
+- **Text:** the whole value with a caret, so arrows, ⇧-arrows and ⌘A select part of it. JSON,
+  including JSON stored as text, is pretty-printed.
+- **Header and footer:** the column name, type and length, and a **Copy** button.
+- **Closing:** Esc, Space or clicking elsewhere.
+- **Editing:** in an editable grid, Enter/double-click on a long, multi-line or JSON value opens
+  the box as an editor. ⌘↵ or clicking away saves, and Esc cancels. Short values keep the
+  one-line inline editor.
 
 **Saving:** the top bar has a **Save** button, `⌘S` / `Ctrl+S`, with a ▾ next to it (`⌘⇧S`)
 for **Save as** CSV, TSV, Parquet, JSON Lines or a JSON array. DuckDB writes the bytes
@@ -731,8 +750,10 @@ collection(s) its named queries come from. A workflow opens at `#workflow/<id>` 
 `#chain/<id>` links still work).
 
 **Named queries.** A Query step can run its own SQL or a named query from **any** collection
-(shown as `Collection/folder/name`). A named query brings its own collection's variables, active
-environment, default connection and pre/post scripts; the workflow's own variables override them.
+(shown as `Collection/folder/name`). The **Saved query** picker ("None: SQL written below", then
+every named query) shows only when there are named queries to pick. A named query brings its own collection's variables, active
+environment, default connection and pre/post scripts; values set by the workflow's Set variables
+steps override them.
 Collection exports don't include workflows (an older export that has them imports them as
 standalone workflows). Older workflow rows still carry an unused `collectionId`.
 
@@ -740,10 +761,10 @@ standalone workflows). Older workflow rows still carry an unused `collectionId`.
 
 | Kind | What it does | Output |
 |---|---|---|
-| **Query** | Runs a named query (or inline SQL) on a connection, with workflow variables | A result table |
+| **Query** | Runs a named query (or inline SQL) on a connection, with the variables set so far | A result table |
 | **Transform: DuckDB** | Runs DuckDB SQL over earlier steps' results **on this machine (DuckDB-WASM)**, e.g. `SELECT … FROM {{ ref("sales") }} JOIN {{ ref("ads") }}` even when `sales` came from BigQuery and `ads` from Postgres | A result table |
 | **Transform: JavaScript** | Runs a JavaScript function on earlier results, in a sandboxed Web Worker: `(inputs, vars) => rows \| { rows, vars }` | A result table and/or new variables |
-| **Set variables** | Takes values out of an earlier result for later queries. Each row reads as a sentence: `ids` = *All values of* `ad_hash` *from* `top_ads` (also *Unique values*, *First / Largest / Smallest value*, *Sum*, *Row count*, or a custom expression). Column pickers fill in after the step has run once. Under each row: how to use it, `{{ ids \| sql_list }}` for lists, `{{ best \| sql }}` for one value | Variables |
+| **Set variables** | Sets values for later steps, written in one small box as `SET name = value` lines (a value can span lines until the next `SET`; `--` comments; a trailing `;` is fine). A value is a literal (`"Acme"`, `'2026-10-14'`, `7`, `[1, 2]`) or **DuckDB SQL in parentheses** over earlier results and earlier variables, which must return exactly one row and one column: `SET since = (SELECT max(day) FROM {{ ref("runs") }})`, a list with `SET ids = (SELECT list(DISTINCT id) FROM {{ ref("clients") }})` (an empty `list()` is an empty list). Anything else is an error that says how to fix it. The older function form (`column("step", "col")`, `first`, `count` …) still runs but isn't shown in hints. The text is saved while it parses; a mistake shows its line and isn't saved. Stored as `assignments` (name → expression), so files and older workflows read the same. Output: a foldable **Preview** (no tabs) with each variable's name, kind (`text`, `number`, `list · 33`) and value | Variables |
 | **Export** | Saves a step's result as CSV, JSON Lines or Parquet with DuckDB's `COPY … TO`, on this machine; Chrome asks where to save. Pick a step, or *DuckDB query…* to filter or reshape it first | A file |
 | **Assert** | A check, e.g. "row count > 0" or "no NULL ad_id". Fails the workflow when not met | Pass/fail |
 
@@ -756,6 +777,34 @@ So a **middle step that converts one step's output into the next step's input** 
   date). For example, step 1 finds yesterday's top 50 ads in BigQuery, a Set variables step
   turns them into `top_ad_ids`, and step 3 runs `WHERE ad_hash IN {{ top_ad_ids | sql_list }}`
   on Postgres.
+
+**Inputs are Set variables steps.** There is no separate "Workflow variables" panel. The values
+you change between runs (a client name, a start date) sit in a Set variables step at the top,
+usually named `inputs`, with the *Value* pick. A step that uses a variable depends on the Set
+variables step that sets it: in its template, or in a set-vars or assert expression. So **Run
+only** on a later step runs that step first, or uses its cached values. Workflows saved with the
+old panel, and workflow files with `vars`, get those values as a first `inputs` step when they
+open or import. Secret variables stay in the workflow's hidden list, because their values live
+in the secret store.
+
+**Step cards.** Each card leads with its number and a coloured type tag: Query blue, DuckDB and
+JavaScript purple, Set variables amber, Assert green, Export grey. The card's left edge has the
+same colour.
+- **Header:** a Query card shows where it runs (the engine icon, the connection name,
+  *production* and *read-only*). Transforms say *on this machine*. Then the row count, time,
+  bytes billed and status, a ▶ (**Run only this step**, earlier results from the cache), and a
+  ⋯ menu (**Run from here**, which also runs the steps after it, **Run only this step**, **Add
+  description**, **Move up/down**, **Delete step**).
+- **Body:** the step's note, then its editor.
+- **Descriptions:** the workflow's has an **Edit** button; a step's is edited from its ⋯ menu
+  (**Edit description**, or **Add description** when it has none). Either opens a box with
+  **Save** and **Cancel** (⌘↵ saves, Esc cancels). Clicking the text itself does nothing. The
+  workflow's description shows 8 lines before **Show more**, a step's 3; Show more appears only
+  when something is cut. The workflow name fills the header's free width.
+- **Footer:** a name is shown only on steps whose result is a table later steps read (Query and
+  the two Transforms), as **Result table** `[name]` `{{ ref("name") }}` *below* the SQL. Set
+  variables, Assert and Export steps keep an automatic name that is never shown. The footer
+  also lists what the step uses (`uses inputs, client`).
 
 **How data flows between steps**
 - Each step's result is loaded into the workflow's **local DuckDB** as table `step_<name>`, which
@@ -770,9 +819,27 @@ So a **middle step that converts one step's output into the next step's input** 
 
 **Running**
 - **Run all**, **Run from here**, or **Run only this step**. Each step shows status,
-  row count, time and bytes billed (BigQuery). Click a step to see its rendered SQL and a result preview.
-- **Results are cached** per step by rendered SQL plus input hashes, so changing step 4 doesn't
-  re-run steps 1–3. Clearing the cache forces a full run.
+  row count, time and bytes billed (BigQuery).
+- **Output under each step:** once a step has run, its card ends with a foldable panel (a plain
+  Preview of the values on Set variables steps, none on Assert steps, whose header says
+  *passed*; a passed assert is saved so it still says so after a reload, and runs again every run). Opening a workflow shows earlier results folded, with the row count
+  ("3 rows · cached") in the panel's header; running a step unfolds its panel live. The panel has
+  **Result** (a grid up to about 12 rows tall, then it scrolls; or the variables a Set
+  variables step set), **Rendered SQL** and **Tests & log**. There's no side panel: the whole
+  page scrolls as one, with the header (Run all) kept at the top.
+- **Unset variables:** a step whose SQL outputs a variable with no value (not only tests it in
+  `{% if %}`) fails before it runs, naming the variables. A plain `{{ x }}` would otherwise
+  render as nothing, e.g. `` `{{ project }}.ds.t` `` → `` `.ds.t` ``, which BigQuery reads in the
+  connection's own project.
+- **Errors:** a failed step's error shows on its own card only. So does a graph problem that
+  belongs to one step (a ref to a step that doesn't exist, naming the `SET` line; a bad or
+  duplicate name); Run all is off until it's fixed. A cycle shows above the steps. A blocked run (over the cost
+  guard) opens the estimate dialog. Only an error that belongs to no step goes above the steps.
+- **Results are kept** per step by rendered SQL plus input hashes, so changing step 4 doesn't
+  re-run steps 1–3. They're saved in IndexedDB (`chainResults`, one row per workflow), so
+  reopening the workflow or reloading the extension shows each step's last result. Only
+  **Clear result** (or deleting the step, or deleting the workflow from the Trash) removes
+  them; Clear result also makes the next run re-run every step.
 - **Cost guard:** before Run all, BigQuery steps are dry-run together and the total
   estimate is shown. The run stops if any single step is over the connection's cost guard.
 - **Safety:** write statements in a workflow step follow the connection's Read-only and production
@@ -794,8 +861,8 @@ the same sandbox.
 **Workflow files.** A workflow can be saved as and imported from a `.dbui-workflow.json` file
 (`src/chains/workflowFile.ts`, format `"dbui-workflow"` version 1). This lets a workflow written
 elsewhere, by hand or by Claude through the `db-workflow` skill, be run here.
-- **What the file holds:** the name, a description, workflow variables (secret values are left
-  out), and the steps.
+- **What the file holds:** the name, a description and the steps. Inputs are a first Set
+  variables step. An older file's `vars` list still imports, as that step.
 - **Connections:** a step names its connection by an *alias*. The file lists each alias with its
   engine and a hint, such as a host or project name.
 - **Export:** "Export file" in the workflow view, or "Export file…" in a row's menu, writes the
@@ -806,8 +873,11 @@ elsewhere, by hand or by Claude through the `db-workflow` skill, be run here.
   - The dialog shows the steps and maps each alias to a saved connection of the same engine. It
     pre-picks the one whose name or settings match the alias and hint words best. With no match,
     the steps import without a connection.
-  - When a workflow with the same name exists: **Replace existing…** asks for confirmation, then
-    replaces its steps and keeps its id and link. **Keep both** imports under "name 2".
+  - **Never replaces anything.** When the name is taken, the import is named "name (2)",
+    "name (3)" and so on, and the dialog says so. To get rid of the old workflow, delete it
+    yourself; it goes to the Trash (§3.17).
+  - The file's description is folded to 4 lines (**Show more**), and the step list scrolls.
+  - The imported workflow is added to the list and **not opened**; open it yourself.
 - **Notes:** a step's `note` becomes its description, shown under the step header. It doesn't
   affect caching.
 
@@ -864,6 +934,24 @@ with a blob URL) and **Import…** (file picker → summary such as "12 connecti
 - Settings → Backup shows the last automatic backup time and a **Back up now** button.
 
 ---
+
+### 3.17 Trash
+
+Deleting a **workflow, collection, folder, saved query or connection** moves it to the Trash
+(`src/app/store/trash.ts`, IndexedDB store `trash`) instead of removing it.
+- **What an entry holds:** the exact rows that were removed (a collection with its folders and
+  queries), and the values of its secret refs: a connection's password, token and keys, and
+  secret variables.
+- **Undo:** the toast's Undo is a Restore from the Trash.
+- **Folders:** a deleted folder's queries and subfolders move up a level, as before. Restoring
+  the folder brings back the folder only.
+- **Settings › Trash:** lists the entries, newest first, with their kind, name, where they were,
+  and when they were deleted.
+  - **Restore** writes the rows and secrets back.
+  - **Delete forever** asks first, then removes the entry and its secret values.
+  - **Empty trash** does that for every entry.
+- **Nothing expires on its own.**
+- **Not in backups:** the Trash isn't in backups (§3.16), because its entries carry secret values.
 
 ## 4. UI
 
@@ -948,6 +1036,10 @@ There's no Chrome side panel.
   remaining height. The folded ones sit below it, divided by hairlines. Clicking the open
   section folds it.
   - **Schema**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
+    The loaded items and open branches are cached per connection (IndexedDB `schemaCache`), so
+    reopening a connection shows the last list at once. The root and the open branches then
+    reload in the background and replace what's cached; folded branches load fresh when opened.
+    Deleting the connection drops its cache.
   - **Collections**: named queries in collections and folders (§3.14).
   - **Workflows**: multi-step pipelines (§3.15).
   - **History**: every statement you ran, searchable, with time, duration and rows, and a **Save** button per row.

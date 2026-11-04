@@ -1,0 +1,42 @@
+{
+  "id": "ch_vars_sql",
+  "collectionId": "col1",
+  "name": "SET with DuckDB subqueries",
+  "vars": [],
+  "updatedAt": 0,
+  "steps": [
+    {
+      "id": "s0",
+      "name": "inputs",
+      "kind": "set-vars",
+      "assignments": {
+        "min_rev": "100"
+      }
+    },
+    {
+      "id": "s1",
+      "name": "sales",
+      "kind": "query",
+      "connectionId": "bq",
+      "sql": "SELECT * FROM ads_daily"
+    },
+    {
+      "id": "s2",
+      "name": "pick",
+      "kind": "set-vars",
+      "assignments": {
+        "big_ids": "(SELECT list(DISTINCT ad_hash ORDER BY ad_hash) FROM {{ ref(\"sales\") }} WHERE revenue >= {{ min_rev | sql }})",
+        "total": "(SELECT sum(revenue) FROM {{ ref(\"sales\") }})",
+        "none": "(SELECT list(ad_hash) FROM {{ ref(\"sales\") }} WHERE false)",
+        "n": "len(big_ids)"
+      }
+    },
+    {
+      "id": "s3",
+      "name": "lookup",
+      "kind": "query",
+      "connectionId": "pg",
+      "sql": "SELECT ad_hash, ad_name FROM ads WHERE ad_hash IN {{ big_ids | sql_list }}"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "ch_bad_set", "name": "SET names a step that isn't there", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s1", "name": "inputs", "kind": "set-vars", "assignments": { "bq_project_name": "count(\"step\")", "client_id": "\"c_123\"" } },
+    { "id": "s2", "name": "orders", "kind": "query", "connectionId": "bq", "sql": "SELECT 1 FROM {{ bq_project_name | ident }}.t" }
+  ]
+}

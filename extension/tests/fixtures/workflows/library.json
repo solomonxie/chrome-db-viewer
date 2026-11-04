@@ -79,6 +79,30 @@
       ],
       "vars": [],
       "updatedAt": 2
+    },
+    {
+      "id": "ch_notes",
+      "name": "Notes walk-through",
+      "vars": [],
+      "updatedAt": 1790000000000,
+      "description": "How the export runs, end to end:\n1. Trigger.\n2. Dispatch writes the job rows.\n3. A worker runs the task.\n4. The template fills the SQL.\n5. BigQuery writes the files.",
+      "steps": [
+        {
+          "id": "st_n1",
+          "name": "inputs",
+          "kind": "set-vars",
+          "description": "since: first day to look at.",
+          "assignments": {
+            "since": "\"2026-10-14\""
+          }
+        },
+        {
+          "id": "st_n2",
+          "name": "check",
+          "kind": "assert",
+          "condition": "true"
+        }
+      ]
     }
   ]
 }

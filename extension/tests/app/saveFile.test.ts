@@ -62,3 +62,13 @@ test("cancelling the save dialog saves nothing", async () => {
   expect(await saveSheet({ driver: d, table: "sheet", fileName: "orders.csv", sheet: sourceSheet("sheet"), isOriginal: true })).toBeNull();
   await d.disconnect();
 });
+
+test("a sorted SQL sheet's query runs in DuckDB over the CSV, sorted", async () => {
+  const { collect } = await import("@core/types");
+  const { sheetSql } = await import("../../src/app/file/sheets");
+  const d = await open("orders.csv");
+  const sheet = { ...querySheet("SELECT id, total FROM sheet WHERE id <= 5;"), sort: [{ column: "total", dir: "desc" as const }] };
+  const r = await collect(d.execute({ sql: sheetSql(sheet, "sheet", d.dialect) }));
+  expect(r.rows.map((x) => Number(x[1]))).toEqual([...r.rows.map((x) => Number(x[1]))].sort((a, b) => b - a));
+  expect(r.rows).toHaveLength(5);
+});

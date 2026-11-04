@@ -5,9 +5,25 @@ import type { ConnectionConfig, ObjectType } from "@core/types";
 import type { Chain, Collection, Folder, NamedQuery } from "../../collections/model";
 
 const DB_NAME = "dbui";
-const DB_VERSION = 3;
+const DB_VERSION = 6;
 
-export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles" | "collections" | "folders" | "namedQueries" | "chains";
+export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles" | "collections" | "folders" | "namedQueries" | "chains" | "trash" | "schemaCache" | "chainResults";
+
+/**
+ * A deleted item, kept until it's deleted from the Trash (src/app/store/trash.ts). `rows` are the
+ * exact rows that were removed, store by store, so Restore writes them back; `secrets` are the
+ * values of its secret refs (passwords, secret variables), kept so a restored item still works.
+ */
+export interface TrashItem {
+  id: string;
+  kind: "workflow" | "collection" | "folder" | "query" | "connection";
+  name: string;
+  /** Where it was: "Finance", "Finance/reports", a connection's engine … */
+  where?: string;
+  deletedAt: number;
+  rows: { store: "connections" | "collections" | "folders" | "namedQueries" | "chains"; row: unknown }[];
+  secrets?: Record<string, string>;
+}
 
 export interface SavedConnection extends ConnectionConfig {
   group?: string;
@@ -68,6 +84,22 @@ export interface StoredHandle {
   name: string;
 }
 
+/** The Schema tree's last loaded items for one connection (id = connection id). */
+export interface SchemaCacheRow {
+  id: string;
+  /** pathKey(parent) → its children. */
+  children: Record<string, import("@core/types").ObjectNode[]>;
+  expanded: string[];
+  at: number;
+}
+
+/** A workflow's step results from its last runs (id = workflow id), kept until Clear result. */
+export interface ChainResultsRow {
+  id: string;
+  steps: Record<string, import("../../chains/cache").CacheEntry>;
+  at: number;
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -92,7 +124,13 @@ type Row<S extends StoreName> = S extends "connections"
                 ? NamedQuery
                 : S extends "chains"
                   ? Chain
-                  : Group;
+                  : S extends "trash"
+                    ? TrashItem
+                    : S extends "schemaCache"
+                      ? SchemaCacheRow
+                      : S extends "chainResults"
+                        ? ChainResultsRow
+                        : Group;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -102,7 +140,7 @@ function open(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ["connections", "queries", "recentFiles", "groups", "handles"]) {
+      for (const name of ["connections", "queries", "recentFiles", "groups", "handles", "trash", "schemaCache", "chainResults"]) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("history")) {

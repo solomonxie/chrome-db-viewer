@@ -15,9 +15,10 @@
 import { collect, type Cell, type Column, type ConnectionConfig, type Driver, type DriverId, type Statement } from "@core/types";
 import type { Chain, ChainStep, NamedQuery, RenderOptions, RenderResult, ResultTable, SandboxResponse } from "../collections/model";
 import { findDestructive, isWriteStatement, type Destructive } from "../app/lib/safety";
-import { chainCache, hashString, hashTable, hashValue, stableJson, type CacheEntry } from "./cache";
+import { sqlSubquery } from "./setText";
+import { chainCache, loadSavedResults, saveResults, hashString, hashTable, hashValue, stableJson, type CacheEntry } from "./cache";
 import { evaluate, exprVariables } from "./expr";
-import { ancestors, buildGraph, descendants, findRefs, type ChainGraph } from "./graph";
+import { ancestors, buildGraph, descendants, findRefs, templateIdentifiers, type ChainGraph } from "./graph";
 import { EMPTY_LIBRARY, type ChainLibrary } from "./library";
 import { createLocalDb, stepTable, type ExportFormat, type LocalDb } from "./local";
 import { sqlIdent } from "./miniRender";
@@ -301,11 +302,27 @@ async function renderQuery(ctx: Ctx, step: ChainStep, vars: Record<string, unkno
     if (msg.includes(CROSS_CONNECTION_ERROR)) throw new StepError(msg);
     throw new StepError(`Could not render step "${step.name}": ${msg}`);
   }
+  checkMissingVars(step, res, { ...varDefaults(q), ...(q ? (ctx.lib.varsFor?.(q) ?? {}) : {}), ...vars });
   for (const v of res.usedVars) checkValueCap(v, vars[v], ctx.cap);
   const parts = splitStatementsRaw(res.sql);
   const body = parts.length ? parts[parts.length - 1]! : res.sql.trim().replace(/;\s*$/, "");
   const statements = [...parts.slice(0, -1), withCtes(ctes, body, dialect)];
   return { sql: statements.join(";\n\n"), statements, body, ctes, usedVars: res.usedVars };
+}
+
+/**
+ * A plain {{ x }} with no value renders as nothing, so `{{ project }}.dataset.table` would
+ * quietly become `.dataset.table` (BigQuery then reads the connection's own project). Refuse to
+ * run instead, naming the variables and where they're usually set.
+ */
+function checkMissingVars(step: ChainStep, r: RenderResult, vars: Record<string, unknown>): void {
+  const need = r.requiredVars ?? r.usedVars;
+  const missing = need.filter((v) => v !== "ref" && v !== "var" && (vars[v] === undefined || vars[v] === null));
+  if (!missing.length) return;
+  const list = missing.map((m) => `"${m}"`).join(", ");
+  throw new StepError(
+    `Step "${step.name}" uses ${list}, which ${missing.length === 1 ? "has" : "have"} no value. Set ${missing.length === 1 ? "it" : "them"} in a Set variables step above (Run from there, or Clear result if it ran before the value was added).`,
+  );
 }
 
 function varDefaults(q: NamedQuery | undefined): Record<string, unknown> {
@@ -591,6 +608,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
     }
   }
 
+  await loadSavedResults(chain.id);
   const cache = chainCache(chain.id);
   const results = new Map<string, ResultTable>();
   const hashes = new Map<string, string>();
@@ -675,6 +693,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
       logs: out.event.logs,
       at: Date.now(),
     });
+    saveResults(chain.id);
   };
   const inputTables = (step: ChainStep): Record<string, ResultTable> => {
     const out: Record<string, ResultTable> = {};
@@ -829,19 +848,41 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
       case "set-vars": {
         const assignments = Object.entries(step.assignments ?? {});
         if (!assignments.length) throw new StepError(`Step "${step.name}" sets no variables`);
-        const used = [...new Set(assignments.flatMap(([, e]) => exprVariables(e)))];
+        const used = [...new Set(assignments.flatMap(([, e]) => (sqlSubquery(e) !== null ? templateIdentifiers(e) : safeVars(e))))];
         const key = keyFor(step, { vars: Object.fromEntries(used.map((v) => [v, vars[v]])) });
         const hit = lookup(step, key);
         if (hit) return fromCache(hit);
         const exprCtx = { table: (n: string) => results.get(n), vars: { ...vars } };
         const set: Record<string, unknown> = {};
+        const sqls: string[] = [];
         for (const [name, expr] of assignments) {
           if (!/^[A-Za-z_]\w*$/.test(name)) throw new StepError(`"${name}" is not a valid variable name`);
           let v: unknown;
-          try {
-            v = evaluate(expr, exprCtx);
-          } catch (e) {
-            throw new StepError(`${name} = ${expr}: ${(e as Error).message}`);
+          const sub = sqlSubquery(expr);
+          if (sub !== null) {
+            // (SELECT …) runs in local DuckDB over earlier results; earlier SETs are variables.
+            const r = renderLocal(sub, exprCtx.vars, step);
+            sqls.push(`SET ${name} = (${r.sql})`);
+            let db: LocalDb | undefined;
+            for (const i of graph.inputs.get(step.name)!) if (results.has(i)) db = await ensureLoaded(i);
+            db ??= await getLocal();
+            let t: ResultTable;
+            try {
+              t = await db.query(r.sql, ctx.signal);
+            } catch (e) {
+              throw new StepError(`${name}: ${(e as Error).message}`, { renderedSql: sqls.join("\n") });
+            }
+            try {
+              v = subqueryValue(t);
+            } catch (e) {
+              throw new StepError(`SET ${name}: ${(e as Error).message}`, { renderedSql: sqls.join("\n") });
+            }
+          } else {
+            try {
+              v = evaluate(expr, exprCtx);
+            } catch (e) {
+              throw new StepError(`${name} = ${expr}: ${(e as Error).message}`);
+            }
           }
           checkValueCap(name, v, ctx.cap);
           set[name] = v ?? null;
@@ -854,7 +895,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
           ],
           rows: Object.entries(set).map(([k, v]) => [k, v as Cell]),
         };
-        const out: StepOutcome = { event: { vars: set, ...preview(table) }, result: table, resultHash: hashValue(set), varChanges: set };
+        const out: StepOutcome = { event: { vars: set, ...(sqls.length ? { renderedSql: sqls.join("\n") } : {}), ...preview(table) }, result: table, resultHash: hashValue(set), varChanges: set };
         store(step, key, out, Date.now() - t0);
         return out;
       }
@@ -889,7 +930,10 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
         const passed = Array.isArray(v) ? v.length > 0 : !!v;
         const tests = [{ name: cond, passed }];
         if (!passed) throw new StepError(`Assertion failed: ${cond}`, { tests });
-        return { event: { tests }, resultHash: hashValue([cond, true]) };
+        const out: StepOutcome = { event: { tests }, resultHash: hashValue([cond, true]) };
+        // Kept only so the workflow shows "passed" after a reload; the check runs again every run.
+        store(step, `assert:${Date.now()}`, out, Date.now() - t0);
+        return out;
       }
     }
   };
@@ -905,6 +949,7 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
           return sqlIdent(stepTable(name), "duckdb");
         },
       });
+      checkMissingVars(step, r, vars);
       for (const v of r.usedVars) checkValueCap(v, vars[v], ctx.cap);
       return r;
     } catch (e) {
@@ -945,5 +990,32 @@ function safeFileName(s: string): string {
   return s.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "") || "workflow";
 }
 
-export { clearCache, cachedResult } from "./cache";
+const safeVars = (e: string) => {
+  try {
+    return exprVariables(e);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The value of `SET x = (SELECT …)`: the query must return exactly one row and one column, and
+ * that cell is the value. For a list, aggregate it: `SELECT list(id) FROM …` (an empty list()
+ * is NULL in DuckDB; it's read as an empty list here, so `| sql_list` gives `(NULL)`).
+ */
+export function subqueryValue(t: ResultTable): unknown {
+  if (t.columns.length !== 1) {
+    throw new Error(`the query returns ${t.columns.length} columns; it must return one`);
+  }
+  if (t.rows.length !== 1) {
+    throw new Error(
+      `the query returns ${t.rows.length} rows; it must return one. For a list of values use SELECT list(${t.columns[0]!.name}) …, for one value an aggregate like max(…) or LIMIT 1`,
+    );
+  }
+  const v = t.rows[0]![0];
+  if (v === null && /\[\]$/.test(t.columns[0]!.type)) return [];
+  return v;
+}
+
+export { clearCache, cachedResult, loadSavedResults, setResultStore } from "./cache";
 export { stableJson };

@@ -103,7 +103,7 @@ export function CollectionsTree(props: { onOpenQuery: (q: NamedQuery) => void; a
   const removeWithUndo = async (label: string, remove: () => Promise<() => Promise<void>>) => {
     try {
       const restore = await remove();
-      props.toast(`Deleted ${label}`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
+      props.toast(`Moved ${label} to the Trash`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
     } catch (e) {
       props.toast((e as Error).message);
     }

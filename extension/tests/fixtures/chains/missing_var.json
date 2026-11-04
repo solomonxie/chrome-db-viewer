@@ -1,0 +1,7 @@
+{
+  "id": "ch_missing_var", "collectionId": "col1", "name": "A table name from a variable that isn't set", "vars": [], "updatedAt": 0,
+  "steps": [
+    { "id": "s0", "name": "inputs", "kind": "set-vars", "assignments": { "bq_dataset_name": "\"production__acme\"" } },
+    { "id": "s1", "name": "orders", "kind": "query", "connectionId": "bq", "sql": "SELECT * FROM `{{ bq_project_name }}.{{ bq_dataset_name }}.ads_daily`{% if region %} WHERE region = {{ region | sql }}{% endif %}" }
+  ]
+}

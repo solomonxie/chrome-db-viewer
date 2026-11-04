@@ -2,6 +2,7 @@
 // in set-vars/assert functions (count("x")), inputs.x in scripts, variables a set-vars step
 // produces, and explicit dependsOn. Steps are sorted into levels; one level runs in parallel.
 
+import { exprVariables } from "./expr";
 import type { Chain, ChainStep } from "../collections/model";
 
 export class ChainGraphError extends Error {
@@ -69,7 +70,12 @@ export function mentionedSteps(step: ChainStep, opts: GraphOptions = {}): { refs
   const named: string[] = [];
   const tpl = stepTemplate(step, opts);
   if (step.kind === "query" || step.kind === "transform-sql" || step.kind === "export") refs.push(...findRefs(tpl));
-  if (step.kind === "set-vars") for (const e of Object.values(step.assignments ?? {})) named.push(...matchAll(e, STEP_FN_RE, (m) => m[2]!));
+  if (step.kind === "set-vars") {
+    for (const e of Object.values(step.assignments ?? {})) {
+      named.push(...matchAll(e, STEP_FN_RE, (m) => m[2]!));
+      refs.push(...findRefs(e));
+    }
+  }
   if (step.kind === "assert") {
     named.push(...matchAll(step.condition, STEP_FN_RE, (m) => m[2]!));
     named.push(...matchAll(step.condition, INPUTS_RE, (m) => m[1] ?? m[3]!));
@@ -108,10 +114,14 @@ export function buildGraph(chain: Pick<Chain, "steps">, opts: GraphOptions = {})
     }
     for (const n of named) {
       if (steps.has(n)) list.push(n);
-      else throw missing(s.name, n);
+      else throw missing(s.name, n, s.kind === "set-vars" ? setVarMentioning(s, n) : undefined);
     }
     const tpl = s.kind === "query" || s.kind === "transform-sql" || s.kind === "export" ? stepTemplate(s, opts) : "";
-    for (const id of templateIdentifiers(tpl)) {
+    // Variables a step reads (in its template, or in set-vars / assert expressions) make the
+    // Set variables step that sets them an input, so Run only / Run from here run it first.
+    const exprs = s.kind === "set-vars" ? Object.values(s.assignments ?? {}) : s.kind === "assert" ? [s.condition ?? ""] : [];
+    const used = [...templateIdentifiers(tpl), ...exprs.flatMap((e) => (/^\s*\(\s*(select|with|from|values)\b/i.test(e) ? templateIdentifiers(e) : safeExprVariables(e)))];
+    for (const id of used) {
       const p = producers.get(id);
       if (p && p !== s.name) list.push(p);
     }
@@ -145,8 +155,23 @@ export function buildGraph(chain: Pick<Chain, "steps">, opts: GraphOptions = {})
   return { steps, inputs, dependents, levels, order: levels.flat() };
 }
 
-function missing(from: string, name: string): ChainGraphError {
-  return new ChainGraphError(`Step "${from}" refers to "${name}", which is not a step in this workflow`, "missing", [from, name]);
+function safeExprVariables(e: string): string[] {
+  try {
+    return exprVariables(e);
+  } catch {
+    return [];
+  }
+}
+
+function missing(from: string, name: string, variable?: string): ChainGraphError {
+  const where = variable ? `SET ${variable} in step "${from}"` : `Step "${from}"`;
+  return new ChainGraphError(`${where} refers to "${name}", which is not a step in this workflow`, "missing", [from, name]);
+}
+
+/** The variable of a Set variables step whose expression names `stepName`. */
+function setVarMentioning(s: ChainStep, stepName: string): string | undefined {
+  for (const [k, e] of Object.entries(s.assignments ?? {})) if (matchAll(e, STEP_FN_RE, (m) => m[2]!).includes(stepName)) return k;
+  return undefined;
 }
 
 /** A closed path a → b → … → a among the unsorted steps. */

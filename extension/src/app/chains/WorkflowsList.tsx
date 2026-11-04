@@ -51,7 +51,7 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
   const remove = async (c: Chain) => {
     try {
       const restore = await deleteChain(c.id);
-      props.toast(`Deleted workflow "${c.name}"`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
+      props.toast(`Moved workflow "${c.name}" to the Trash`, { label: "Undo", run: () => void restore().catch((e) => props.toast((e as Error).message)) });
     } catch (e) {
       props.toast((e as Error).message);
     }
@@ -155,11 +155,11 @@ export function WorkflowsList(props: { toast: Toast; onOpen?: (c: Chain) => void
         <ImportWorkflowDialog
           file={importing}
           onClose={() => setImporting(null)}
-          onImported={(c, replaced) => {
+          onImported={(c) => {
             setImporting(null);
-            props.toast(replaced ? `Replaced "${c.name}"` : `Imported "${c.name}"`);
+            props.toast(`Imported "${c.name}"`);
+            // Shown in the list; opening it is up to you.
             void reload();
-            open(c);
           }}
         />
       )}

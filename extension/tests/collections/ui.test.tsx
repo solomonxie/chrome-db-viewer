@@ -138,7 +138,7 @@ test("delete a query from its menu, then Undo brings it back", async () => {
   await act(async () => byText(".menu button", "Delete query")!.click());
   await until(() => !byText(".coll-query .nm", "to_delete_later"));
   expect(confirm).not.toHaveBeenCalled();
-  expect($(".toast")!.textContent).toContain('Deleted query "to_delete_later"');
+  expect($(".toast")!.textContent).toContain('Moved query "to_delete_later" to the Trash');
 
   await act(async () => byText(".toast-action", "Undo")!.click());
   await until(() => !!byText(".coll-query .nm", "to_delete_later"));

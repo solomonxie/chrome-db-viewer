@@ -1,6 +1,9 @@
 // Virtualised DOM grid: renders only the visible rows. Sticky header with sort, resizable
 // columns (double-click a header edge to fit), row numbers, row selection, cell cursor,
-// in-place editing, FK arrows and an open-link button on http(s) URLs.
+// in-place editing, FK arrows and an open-link button on http(s) URLs. Space, Enter or a
+// double-click opens the cell box (CellBox): the whole value in a scrollable text box over the
+// cell, with a caret and partial selection, pretty-printed JSON and Copy. In an editable grid,
+// long or multi-line values are edited in the same box.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import type { Cell, Column } from "@core/types";
@@ -35,8 +38,6 @@ export interface DataGridProps {
   onEdit?: (row: number, col: number, text: string) => void;
   onOpenFk?: (row: number, col: number, newTab: boolean) => void;
   onContextMenu?: (e: RMouseEvent, row: number, col: number) => void;
-  /** Enter or double-click on a non-editable grid. */
-  onActivate?: (row: number, col: number) => void;
   /** Highlights the cursor column (file sheets). */
   highlightColumn?: boolean;
   /** Changes when the data set changes, to reset widths. */
@@ -58,12 +59,14 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   const [scroll, setScroll] = useState({ top: 0, height: 600 });
   const [widths, setWidths] = useState<number[]>(() => p.columns.map(defaultWidth));
   const [editing, setEditing] = useState<{ row: number; col: number; text: string } | null>(null);
+  const [box, setBox] = useState<{ row: number; col: number; edit: boolean } | null>(null);
   const anchor = useRef<number | null>(null);
 
   const colKey = p.columns.map((c) => c.name).join("\u0000") + "|" + (p.resetKey ?? "");
   useEffect(() => {
     setWidths(p.columns.map(defaultWidth));
     setEditing(null);
+    setBox(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colKey]);
 
@@ -125,10 +128,19 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     p.onSelection(sel, { row, col });
   };
 
+  const canEdit = (row: number) => !!p.editable && !!p.onEdit && p.rowStatus?.(row) !== "del";
   const startEdit = (row: number, col: number) => {
-    if (!p.editable || !p.onEdit || p.rowStatus?.(row) === "del") return;
+    if (!canEdit(row)) return;
     const v = p.value(row, col);
+    // Long, multi-line and JSON values are edited in the cell box, not the one-line input.
+    if (isLong(v)) return setBox({ row, col, edit: true });
     setEditing({ row, col, text: v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v) });
+  };
+  /** Enter / double-click: edit when the grid is editable, otherwise read the value in the box. */
+  const activate = (row: number, col: number) => (canEdit(row) ? startEdit(row, col) : setBox({ row, col, edit: false }));
+  const closeBox = () => {
+    setBox(null);
+    wrap.current?.focus();
   };
 
   const commitEdit = (move?: "down" | "right") => {
@@ -144,7 +156,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (editing) return;
+    if (editing || box) return;
     const cur = p.cursor ?? { row: 0, col: 0 };
     const mod = e.metaKey || e.ctrlKey;
     let next: GridCursor | null = null;
@@ -185,8 +197,14 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
       case "Enter":
         if (p.cursor) {
           e.preventDefault();
-          if (p.editable && p.onEdit) startEdit(cur.row, cur.col);
-          else p.onActivate?.(cur.row, cur.col);
+          activate(cur.row, cur.col);
+        }
+        return;
+      case " ":
+        if (p.cursor && !e.shiftKey) {
+          e.preventDefault();
+          scrollIntoView(cur.row, cur.col);
+          setBox({ row: cur.row, col: cur.col, edit: false });
         }
         return;
       case "a":
@@ -280,7 +298,7 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
             }
             if (!isEditing) select(r, c, e);
           }}
-          onDoubleClick={() => (p.editable ? startEdit(r, c) : p.onActivate?.(r, c))}
+          onDoubleClick={() => activate(r, c)}
           onContextMenu={(e) => {
             if (p.onContextMenu) {
               e.preventDefault();
@@ -401,7 +419,172 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
           })}
         </div>
         {rows}
+        {box && box.row < p.rowCount && p.columns[box.col] && (
+          <CellBox
+            key={`${box.row}:${box.col}:${box.edit}`}
+            column={p.columns[box.col]!}
+            value={p.value(box.row, box.col)}
+            edit={box.edit}
+            left={lefts[box.col] ?? rnWidth}
+            top={HEAD_H + box.row * ROW_H}
+            cellWidth={widths[box.col] ?? 200}
+            view={wrap.current ? { left: wrap.current.scrollLeft + rnWidth, right: wrap.current.scrollLeft + wrap.current.clientWidth, top: wrap.current.scrollTop + HEAD_H, bottom: wrap.current.scrollTop + wrap.current.clientHeight } : null}
+            onClose={closeBox}
+            onSave={(text) => {
+              const v = p.value(box.row, box.col);
+              const before = v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+              if (text !== before) p.onEdit?.(box.row, box.col, text);
+              closeBox();
+            }}
+          />
+        )}
       </div>
     </div>
   );
 });
+
+/** Worth the box when editing: long, multi-line or structured. */
+function isLong(v: Cell): boolean {
+  if (v === null) return false;
+  if (typeof v === "object") return true;
+  const s = String(v);
+  return s.length > 60 || s.includes("\n");
+}
+
+/** The value as the box shows it: JSON (also JSON in a string) pretty-printed, everything else as is. */
+export function boxText(v: Cell): { text: string; json: boolean } {
+  if (v === null) return { text: "", json: false };
+  if (typeof v === "object") return { text: JSON.stringify(v, null, 2), json: true };
+  const s = String(v);
+  const t = s.trim();
+  if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) {
+    try {
+      return { text: JSON.stringify(JSON.parse(t), null, 2), json: true };
+    } catch {
+      /* not JSON after all */
+    }
+  }
+  return { text: s, json: false };
+}
+
+const BOX_W = 460;
+const BOX_MAX_H = 320;
+
+/**
+ * The cell box: the value in a text box over its cell, wider than the column, scrolling when
+ * long. Read-only boxes still have a caret, so arrows, ⇧-arrows and ⌘A work inside the value.
+ * Esc closes (in an editor: cancels); ⌘↵ saves an edit; clicking elsewhere closes.
+ */
+function CellBox(props: {
+  column: Column;
+  value: Cell;
+  edit: boolean;
+  left: number;
+  top: number;
+  cellWidth: number;
+  view: { left: number; right: number; top: number; bottom: number } | null;
+  onClose: () => void;
+  onSave: (text: string) => void;
+}) {
+  const { value, edit } = props;
+  const shown = useMemo(() => (edit ? { text: value === null ? "" : typeof value === "object" ? JSON.stringify(value, null, 2) : String(value), json: typeof value === "object" && value !== null } : boxText(value)), [value, edit]);
+  const [text, setText] = useState(shown.text);
+  const [copied, setCopied] = useState(false);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  // Set once the box saves or closes, so the blur that follows doesn't save a second time.
+  const done = useRef(false);
+
+  useLayoutEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(0, 0);
+    el.scrollTop = 0;
+  }, []);
+
+  const lines = Math.min(16, Math.max(2, text.split("\n").length + Math.floor(text.length / 60)));
+  const width = Math.max(props.cellWidth, BOX_W);
+  const v = props.view;
+  let left = props.left;
+  if (v) left = Math.max(v.left, Math.min(left, v.right - width - 8));
+  const estH = Math.min(BOX_MAX_H, lines * 18 + 64);
+  let top = props.top;
+  if (v && top + estH > v.bottom) top = Math.max(v.top, props.top + 32 - estH);
+
+  const finish = (saveIt: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    if (saveIt && edit) props.onSave(value === null && text === "" ? "NULL" : text);
+    else props.onClose();
+  };
+  const save = () => finish(true);
+  const raw = value === null ? "NULL" : typeof value === "object" ? JSON.stringify(value) : String(value);
+
+  return (
+    <div
+      ref={root}
+      className={"cellbox" + (edit ? " editing" : "")}
+      style={{ left, top, width }}
+      role="dialog"
+      aria-label={`${props.column.name} value`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        if (root.current?.contains(e.relatedTarget as Node | null)) return;
+        finish(edit);
+      }}
+    >
+      <div className="cellbox-head">
+        <b>{props.column.name}</b>
+        <small>{props.column.type}</small>
+        <span className="spacer" />
+        <small className="faint">{value === null ? "NULL" : `${raw.length.toLocaleString()} chars${shown.json ? " · JSON" : ""}`}</small>
+      </div>
+      <textarea
+        ref={ta}
+        className="cellbox-text mono"
+        value={text}
+        readOnly={!edit}
+        spellCheck={false}
+        rows={lines}
+        placeholder={value === null ? "NULL" : undefined}
+        aria-label={edit ? `Edit ${props.column.name}` : `${props.column.name} value`}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Escape") {
+            e.preventDefault();
+            finish(false);
+          } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            save();
+          } else if (!edit && e.key === " " && !e.shiftKey) {
+            e.preventDefault();
+            finish(false);
+          }
+        }}
+      />
+      <div className="cellbox-foot">
+        <button
+          className="btn sm"
+          onClick={() =>
+            void navigator.clipboard.writeText(edit ? text : raw).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            })
+          }
+        >
+          <Icon name="copy" className="ico sm" /> {copied ? "Copied" : "Copy"}
+        </button>
+        <span className="spacer" />
+        <small className="faint">{edit ? "⌘↵ save · Esc cancel" : "Esc or Space to close"}</small>
+        {edit && (
+          <button className="btn sm primary" onClick={save}>
+            Save
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -23,15 +23,17 @@ test("the hint picks the connection whose name or host matches", () => {
 test("importing turns aliases into connection ids and keeps SQL, vars and checks", () => {
   const f = parseWorkflowFile(read("import_compare.dbui-workflow.json"));
   const c = workflowFromFile(f, { warehouse: "bq" }, { id: "ch_new", now: 5 });
-  expect(c).toMatchObject({ id: "ch_new", name: "Month close", description: "Compare BigQuery clients with Postgres dashboards.", updatedAt: 5, vars: [{ name: "partner", value: "ACME_ADS" }] });
-  expect(c.steps.map((s) => [s.name, s.kind, s.connectionId])).toEqual([
+  expect(c).toMatchObject({ id: "ch_new", name: "Month close", description: "Compare BigQuery clients with Postgres dashboards.", updatedAt: 5, vars: [] });
+  // The file's vars become a first Set variables step that holds them as values.
+  expect(c.steps[0]).toMatchObject({ name: "inputs", kind: "set-vars", assignments: { partner: '"ACME_ADS"' } });
+  expect(c.steps.slice(1).map((s) => [s.name, s.kind, s.connectionId])).toEqual([
     ["bq", "query", "bq"],
     ["pg", "query", undefined],
     ["diff", "transform-sql", undefined],
     ["has_rows", "assert", undefined],
   ]);
-  expect(c.steps[3]!.condition).toBe('count("diff") >= 0');
-  expect(new Set(c.steps.map((s) => s.id)).size).toBe(4);
+  expect(c.steps[4]!.condition).toBe('count("diff") >= 0');
+  expect(new Set(c.steps.map((s) => s.id)).size).toBe(5);
 });
 
 test("files with a ref to a missing step, or a connection that isn't listed, are refused with the step name", () => {

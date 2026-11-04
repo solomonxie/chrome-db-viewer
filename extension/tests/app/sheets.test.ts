@@ -40,3 +40,16 @@ test("a query sheet runs the typed SQL as is and titles itself with a short one-
   expect(s.title).toBe('SELECT ad_name, count(*) FROM "orders.c…');
   expect(s.title).toHaveLength(40);
 });
+
+test("summary and SQL sheets sort too: the sheet's query runs as a subquery", () => {
+  const sql = querySheet("SELECT status, count(*) AS n FROM sheet GROUP BY 1;");
+  expect(sheetSql({ ...sql, sort: [{ column: "n", dir: "desc" }] }, "sheet", duckdbDialect)).toBe('SELECT * FROM (\nSELECT status, count(*) AS n FROM sheet GROUP BY 1\n) AS q ORDER BY "n" DESC');
+  expect(sheetSql(sql, "sheet", duckdbDialect)).toBe("SELECT status, count(*) AS n FROM sheet GROUP BY 1;");
+  const sum = summarySheet(sourceSheet("sheet"));
+  expect(sheetSql({ ...sum, sort: [{ column: "null_percentage", dir: "asc" }] }, "sheet", duckdbDialect)).toBe('SELECT * FROM (SUMMARIZE "sheet") ORDER BY "null_percentage" ASC');
+});
+
+test("a SQL sheet over the whole file is titled by what follows FROM \"sheet\"", () => {
+  expect(querySheet('SELECT * FROM "sheet" order by tax_value desc').title).toBe("order by tax_value desc");
+  expect(querySheet("SELECT count() FROM sheet").title).toBe("SELECT count() FROM sheet");
+});
