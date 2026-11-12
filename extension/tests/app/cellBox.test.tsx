@@ -1,11 +1,11 @@
-// The cell box: Space, Enter or double-click opens a cell's whole value in a text box over the grid.
+// The cell box and peek: a click or arrow key on a cut-off cell shows its whole value (peek); Space, Enter or double-click opens it in a text box over the grid.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import type { Cell, Column } from "../../src/core/types";
-import { boxText, DataGrid, type GridCursor } from "../../src/app/components/DataGrid";
+import { boxText, DataGrid, overflows, type GridCursor } from "../../src/app/components/DataGrid";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const DATA = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/app/long-cells.json"), "utf8")) as { columns: Column[]; rows: Cell[][] };
@@ -109,4 +109,44 @@ test("in an editable grid, a long value is edited in the box and ⌘↵ saves it
   await act(async () => void cell(0, 3).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
   expect($(".cellbox")).toBeNull();
   expect($<HTMLInputElement>(".vgrid .c input")!.value).toBe("short");
+});
+
+test("a single click on a cut-off cell shows the whole value; short values show nothing", async () => {
+  await mount();
+  const grid = $<HTMLElement>(".gridwrap")!;
+  await act(async () => {
+    cell(1, 1).dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    grid.focus();
+  });
+  expect($(".cellpeek-text")!.textContent).toBe(DATA.rows[1]![1]);
+  expect($(".cellpeek-foot")!.textContent).toContain("90 chars");
+  await act(async () => void cell(0, 1).dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+  expect($(".cellpeek")).toBeNull();
+  expect(overflows("short", 140)).toBe(false);
+  expect(overflows("a\nb", 300)).toBe(true);
+  expect(overflows(null, 10)).toBe(false);
+});
+
+test("arrow keys move the cursor and the peek follows it; Esc hides the peek until the cursor moves", async () => {
+  await mount();
+  const grid = $<HTMLElement>(".gridwrap")!;
+  await act(async () => {
+    cell(0, 1).dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    grid.focus();
+  });
+  await key(grid, "ArrowDown");
+  expect(cell(1, 1).classList.contains("cur")).toBe(true);
+  expect($(".cellpeek-text")!.textContent).toBe(DATA.rows[1]![1]);
+  await key(grid, "ArrowRight");
+  expect($(".cellpeek-text")!.textContent).toBe('{\n  "source": "web",\n  "tags": [\n    "a",\n    "b"\n  ]\n}');
+  await key(grid, "Escape");
+  expect($(".cellpeek")).toBeNull();
+  await key(grid, "ArrowDown");
+  expect($(".cellpeek")).toBeNull(); // NULL: nothing cut off
+  await key(grid, "ArrowRight");
+  expect($(".cellpeek-text")!.textContent).toBe("line one\nline two");
+  // Space still opens the full box; the peek gives way to it.
+  await key(grid, " ");
+  expect($(".cellbox")).not.toBeNull();
+  expect($(".cellpeek")).toBeNull();
 });

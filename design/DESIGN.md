@@ -439,17 +439,24 @@ No other scheme becomes a link. Double-clicking a column's header edge fits the 
 longest value (up to 900px). The top bar wraps its buttons onto a second line when the window
 is narrow.
 
-**Cell box** (every result grid: file sheets, query results, tables, workflow previews).
-Clicking a cell still only moves the cursor and selects the row. **Space**, **Enter** or a
-**double-click** opens the cell box over the cell:
-- **Layout:** at least 460px wide and up to 320px tall, and it scrolls.
-- **Text:** the whole value with a caret, so arrows, ⇧-arrows and ⌘A select part of it. JSON,
-  including JSON stored as text, is pretty-printed.
-- **Header and footer:** the column name, type and length, and a **Copy** button.
-- **Closing:** Esc, Space or clicking elsewhere.
-- **Editing:** in an editable grid, Enter/double-click on a long, multi-line or JSON value opens
-  the box as an editor. ⌘↵ or clicking away saves, and Esc cancels. Short values keep the
-  one-line inline editor.
+**Cell peek and cell box** (every result grid: file sheets, query results, tables, workflow
+previews).
+- **Keyboard:** the arrow keys, Home/End (⌘ for the first or last row) and PageUp/PageDown move
+  the cell cursor; ⇧↑/⇧↓ extend the row selection.
+- **Peek:** when the cursor's value is cut off (long, multi-line or JSON), a single click or an
+  arrow key onto the cell shows the whole value over it, pretty-printed, up to 2,000 characters.
+  It takes no focus and lets clicks through, so the keys keep moving the cursor. Esc hides it
+  until the cursor moves.
+- **Box:** **Space**, **Enter** or a **double-click** opens the cell box over the cell, for
+  selecting part of the value and copying:
+  - **Layout:** at least 460px wide and up to 320px tall, and it scrolls.
+  - **Text:** the whole value with a caret, so arrows, ⇧-arrows and ⌘A select part of it.
+    JSON, including JSON stored as text, is pretty-printed.
+  - **Header and footer:** the column name, type and length, and a **Copy** button.
+  - **Closing:** Esc, Space or clicking elsewhere.
+  - **Editing:** in an editable grid, Enter/double-click on a long, multi-line or JSON value
+    opens the box as an editor. ⌘↵ or clicking away saves, and Esc cancels. Short values keep
+    the one-line inline editor.
 
 **Saving:** the top bar has a **Save** button, `⌘S` / `Ctrl+S`, with a ▾ next to it (`⌘⇧S`)
 for **Save as** CSV, TSV, Parquet, JSON Lines or a JSON array. DuckDB writes the bytes
@@ -747,7 +754,11 @@ small dbt project inside dbui.
 filter, **New workflow** (asks only for a name), rename, duplicate and delete. Each row shows the
 step count, the last run (passed, failed, stopped or blocked, and when), and small tags for the
 collection(s) its named queries come from. A workflow opens at `#workflow/<id>` (old
-`#chain/<id>` links still work).
+`#chain/<id>` links still work). The same list, with its **+** (New workflow, Import from file…),
+is also a page of its own at `#workflows`, opened from the toolbar popup's Workflows section, so
+workflows can be reached without opening a connection first. Each workflow has one tab: opening
+it again (from this page, the popup or the left pane) switches to that tab;
+the list refreshes when you come back to the tab.
 
 **Named queries.** A Query step can run its own SQL or a named query from **any** collection
 (shown as `Collection/folder/name`). The **Saved query** picker ("None: SQL written below", then
@@ -964,8 +975,12 @@ There's no Chrome side panel.
   the only connection list: **there is no Home page.** Connections are grouped (ungrouped
   first, named groups A–Z, Demo last), each sorted by last use, with a search box focused on
   open. A row shows the engine badge, name, `host : database`, a read-only tag and the env dot.
-  Clicking a connection (or Enter) opens it in a new tab (`#c_<id>`), records `lastUsedAt` and
+  Clicking a connection (or Enter) opens it in its tab (`#c_<id>`), records `lastUsedAt` and
   closes the popup.
+  - **One tab per connection and per workflow** (and for Settings and the Workflows page):
+    opening one that's already open in a tab switches to that tab instead of opening another.
+    The connection tab's top bar has no "open in new browser tab" button. Pages for one job
+    (connection editor, a data file) still always open a new tab.
   - There's no search box; `↑↓` + `Enter` work on the list.
   - Each saved connection's **⋯** opens a small vertical menu under its row (inline, since a
     floating menu would be clipped by the popup): **Edit**, **Duplicate**, **Copy as ›**, **Move to
@@ -985,6 +1000,13 @@ There's no Chrome side panel.
     wide while open). A file field (DuckDB/SQLite file, a BigQuery key file) can't open a chooser
     there, since Chrome closes the popup when it loses focus, so it offers **Choose in a tab…**,
     which continues in `#new/<engine>` or `#edit/<id>`.
+  - Under the connections, a **Workflows** section like a connection group lists the 4 most
+    recently changed workflows (step count, last run); clicking one opens `#workflow/<id>`. Its
+    header has **All workflows ›** (**New or import ›** when there are none), which opens the
+    `#workflows` page (§3.15), focusing an open one. Arrow keys and Enter stay on connections.
+  - The **Demo** group can be hidden: Settings › Connections › **Show the demo connection** (on
+    by default, `chrome.storage.local["showDemo"]`). Hidden, it's left out of the popup and every
+    connection picker; a `#c_demo` link still opens it.
   - Footer: **New connection** and Settings (focuses an open Settings tab, else opens one). No
     Open file button: data files open passively when Chrome navigates to one (§3.12).
 - **Connection editor** (`app.html#new`, `#new/<engine>`, `#edit/<id>`): a tab holding just the
@@ -1035,7 +1057,10 @@ There's no Chrome side panel.
   One section is open at a time: its header is a full-width accent bar and its body fills the
   remaining height. The folded ones sit below it, divided by hairlines. Clicking the open
   section folds it.
-  - **Schema**: object tree with search; matched text is highlighted. A filter menu chooses which object types to show.
+  - **Schema**: object tree with fuzzy search (a substring, or the letters in order: `dexpres`
+    finds `data_export_results`; case and spaces ignored); matched letters are highlighted. A
+    filter menu chooses which object types to show. A table's row count and star appear on hover
+    and take no width otherwise, so long names use the whole row.
     The loaded items and open branches are cached per connection (IndexedDB `schemaCache`), so
     reopening a connection shows the last list at once. The root and the open branches then
     reload in the background and replace what's cached; folded branches load fresh when opened.

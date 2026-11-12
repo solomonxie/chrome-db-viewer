@@ -34,3 +34,12 @@ body.popup:has(.pop-sheet) { width: 460px; }
 .pop-menu-q b { color: var(--fg-strong); font-weight: 600; }
 .pop-menu-acts { display: flex; gap: 6px; justify-content: flex-end; align-items: center; padding: 2px; }
 .pop-menu-acts .input { flex: 1; min-width: 0; min-height: 26px; padding: 2px 8px; font-size: 12.5px; }
+
+/* Recent workflows under the connections; the header links to the full #workflows page. */
+.pop-wf-head { display: flex; align-items: center; justify-content: space-between; padding-right: 2px; }
+.pop-wf-all { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; min-height: 22px; padding: 0 6px; color: var(--muted); }
+.pop-wf-all .ico { width: 12px; height: 12px; }
+.pop-wf { min-height: 36px; }
+.pop-wf:hover { background: var(--hover-strong); }
+.pop-wf-ico { width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; background: var(--surface-3); color: var(--muted); }
+.pop-wf-ico .ico { width: 15px; height: 15px; }

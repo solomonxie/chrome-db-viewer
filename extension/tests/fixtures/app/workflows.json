@@ -1,0 +1,7 @@
+[
+  { "id": "ch_old", "name": "Oldest workflow", "steps": [], "vars": [], "updatedAt": 1000 },
+  { "id": "ch_close", "name": "Month close", "steps": [{ "id": "st_1", "name": "a", "kind": "query", "sql": "SELECT 1" }], "vars": [], "updatedAt": 4000 },
+  { "id": "ch_daily", "name": "Daily ad report", "steps": [{ "id": "st_1", "name": "a", "kind": "query", "sql": "SELECT 1" }, { "id": "st_2", "name": "b", "kind": "query", "sql": "SELECT 2" }], "vars": [], "updatedAt": 5000, "lastRun": { "status": "failed", "at": 5000 } },
+  { "id": "ch_spend", "name": "Spend check", "steps": [], "vars": [], "updatedAt": 3000 },
+  { "id": "ch_users", "name": "New users", "steps": [], "vars": [], "updatedAt": 2000 }
+]

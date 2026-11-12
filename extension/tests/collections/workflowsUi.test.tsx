@@ -10,7 +10,7 @@ import { App } from "../../src/app/App";
 import { SaveAsNamedQuery } from "../../src/app/collections/SaveAsNamedQuery";
 import { ToastProvider } from "../../src/app/components/ui";
 import type { Chain, Collection, NamedQuery } from "../../src/collections/model";
-import { listChainRows, listCollections, loadBundle, putChainRow, saveCollection, saveQuery } from "../../src/collections/store";
+import { deleteChainRow, listChainRows, listCollections, loadBundle, putChainRow, saveCollection, saveQuery } from "../../src/collections/store";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -115,6 +115,38 @@ test("the Workflows tab lists every workflow, tagged with the collections its na
   await until(() => !!byText(".coll-head .nm", "Ad performance"));
   expect($(".tree")!.textContent).not.toMatch(/workflow|Daily ad report/i);
   expect(visibleText()).not.toMatch(/chain/i);
+});
+
+test("the #workflows page lists every workflow and has New workflow and Import from file", async () => {
+  const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+  await mount(<App />, "#workflows");
+  await until(() => all(".wf-item").length >= 2);
+  expect(document.title).toBe("Workflows");
+  expect($("h1")!.textContent).toBe("Workflows");
+  expect(all(".wf-name").map((n) => n.textContent)).toEqual(expect.arrayContaining(["Daily ad report", "Month close"]));
+
+  // + offers New workflow and Import from file…
+  await click($("button[aria-label='Add workflow']"));
+  expect(all(".menu [role=menuitem]").map((b) => b.textContent)).toEqual(["New workflow", expect.stringMatching(/^Import from file…/)]);
+  await click(byText(".menu [role=menuitem]", "New workflow"));
+  await until(() => !!$(".modal input[aria-label='Workflow name']"));
+  await act(async () => type($<HTMLInputElement>(".modal input[aria-label='Workflow name']")!, "From the page"));
+  await click(byText(".modal .btn", "Create"));
+  await until(() => openSpy.mock.calls.length === 1);
+  const created = (await listChainRows()).find((c) => c.name === "From the page")!;
+  expect(String(openSpy.mock.calls[0]![0])).toContain(`#workflow/${created.id}`);
+  // The page stays on the list.
+  expect(location.hash).toBe("#workflows");
+
+  await importFile("import_compare.dbui-workflow.json");
+  await until(() => !!byText(".modal .btn", "Import"));
+  await click(byText(".modal .btn", "Import"));
+  await until(() => !$(".modal"));
+  const imported = (await listChainRows()).find((c) => /^Month close \(\d\)$/.test(c.name))!;
+  await until(() => all(".wf-name").some((n) => n.textContent === imported.name));
+  // Later tests count on the fixture library as it was.
+  await deleteChainRow(imported.id);
+  await deleteChainRow(created.id);
 });
 
 test("New workflow asks only for a name and opens the workflow at #workflow/<id>", async () => {

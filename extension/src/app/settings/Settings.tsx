@@ -15,6 +15,7 @@ import { RunnerCard, useRunnerStatus } from "./RunnerCard";
 import { RestoreBanner, useRestoreOffer } from "./RestoreBanner";
 import { Icon } from "../components/Icon";
 import { Appearance } from "./Appearance";
+import { ConnectionsSection } from "./ConnectionsSection";
 import { BackupSection } from "./BackupSection";
 import { TrashSection } from "./TrashSection";
 
@@ -134,6 +135,7 @@ export function Settings({ section }: { section?: string }) {
         {restore.offer && <RestoreBanner offer={restore.offer} onDone={() => restore.dismiss()} />}
 
         <Appearance />
+        <ConnectionsSection />
 
         <section id="settings-preview">
           <h2>Browser preview</h2>

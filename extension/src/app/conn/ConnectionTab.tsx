@@ -9,7 +9,7 @@ import { clearTable, emptyPending, pendingCount, toChangeSet, undo, type Pending
 import { tableRef } from "../lib/filters";
 import { ENGINE, ENV_VAR } from "../lib/format";
 import { ALT, MOD, useKeys } from "../lib/keys";
-import { closeThisTab, navigate, openConnectionTab } from "../lib/route";
+import { closeThisTab, navigate } from "../lib/route";
 import { classifyRunnerError, runnerDrivers, type RunnerStatus } from "../lib/runner";
 import * as db from "../store/db";
 import { secretStore, sessionSecrets } from "../store/secrets";
@@ -434,7 +434,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
     setActiveTab(tabs[(i + delta + tabs.length) % tabs.length]!.id);
   };
 
-  const openInNewWindow = () => openConnectionTab(cfg.id);
   // Saved connections, for the top-bar switcher and the palette's "Open connection…" items.
   const [allConns, setAllConns] = useState<SavedConnection[]>([]);
   useEffect(() => {
@@ -521,7 +520,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       { id: "sql", label: "New query tab", hint: `${ALT}T`, run: () => openSql() },
       { id: "close-tab", label: "Close tab", hint: `${ALT}W`, run: () => activeTab && closeTab(activeTab) },
       { id: "close-others", label: "Close other tabs", run: () => activeTab && closeTabs(othersOf(tabs, activeTab)) },
-      { id: "new-window", label: "Open connection in new browser tab", run: openInNewWindow },
       { id: "review", label: "Review pending changes", hint: `${MOD}⇧P`, run: () => setDrawer({ confirm: false }) },
       { id: "commit", label: "Commit changes", hint: `${MOD}S`, run: commit },
       { id: "refresh", label: "Refresh", hint: `${MOD}R`, run: () => setReloadKey((k) => k + 1) },
@@ -532,10 +530,10 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
       { id: "settings", label: "Settings", run: () => navigate({ name: "settings" }) },
       { id: "edit", label: "Connection settings…", run: () => setEditing(true) },
     ];
-    // Opening another connection always opens a new browser tab; this one stays.
+    // Opening another connection goes to its tab (an open one, else a new one); this one stays.
     for (const c of allConns) {
       if (c.id === cfg.id) continue;
-      out.push({ id: "c:" + c.id, label: `Open connection ${c.name}`, hint: "new tab", run: () => void openConnection(c) });
+      out.push({ id: "c:" + c.id, label: `Open connection ${c.name}`, hint: "its tab", run: () => void openConnection(c) });
     }
     for (const [k, type] of nodeTypes) {
       if (type === "table" || type === "view" || type === "materialized_view") {
@@ -621,9 +619,6 @@ function Workspace(props: { cfg: SavedConnection; driver: Driver; caps: Capabili
         </div>
         <button className="btn icon ghost" title={`Refresh (${MOD}R)`} onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh">
           <Icon name="refresh" />
-        </button>
-        <button className="btn icon ghost" title="Open this connection in a new browser tab" onClick={openInNewWindow} aria-label="Open in new browser tab">
-          <Icon name="external" />
         </button>
         <button className="btn ghost" title="Command palette" onClick={() => setPalette(true)}>
           <kbd>{MOD}K</kbd>

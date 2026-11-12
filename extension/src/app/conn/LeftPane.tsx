@@ -7,6 +7,7 @@ import * as db from "../store/db";
 import { readSchemaCache, writeSchemaCache } from "../store/schemaCache";
 import { fmtAgo, fmtMs } from "../lib/format";
 import { Highlight } from "../components/ui";
+import { fuzzyMatch } from "../lib/fuzzy";
 import { pathKey, type ConnCtx } from "./model";
 import { Icon } from "../components/Icon";
 import { isFavorite, loadFavorites, saveFavorites, toggleFavorite, type Favorite } from "../lib/favorites";
@@ -166,7 +167,7 @@ export function LeftPane(props: {
   const matches = useCallback(
     (n: ObjectNode): boolean => {
       if (!needle) return true;
-      if (n.name.toLowerCase().includes(needle)) return true;
+      if (fuzzyMatch(n.name, needle)) return true;
       return (tree.children.get(pathKey(n.path)) ?? []).some(matches);
     },
     [needle, tree.children],
@@ -213,7 +214,7 @@ export function LeftPane(props: {
           />
           <KindIcon type={n.type} />
           <span className="nm">
-            <Highlight text={n.name} needle={needle} />
+            <Highlight text={n.name} needle={needle} fuzzy />
           </span>
           {n.meta && <span className="meta">{n.meta}</span>}
           {openable && <StarToggle on={isFavorite(favorites, n.path)} name={n.name} onToggle={() => star(n)} />}
@@ -270,7 +271,7 @@ export function LeftPane(props: {
           {tree.loading.has(pathKey([])) && !tree.children.has(pathKey([])) && <div className="empty">Loading…</div>}
           {tree.errors.get(pathKey([])) && <div className="err">{tree.errors.get(pathKey([]))}</div>}
           <FavoritesSection
-            favorites={favorites.filter((f) => !needle || f.name.toLowerCase().includes(needle))}
+            favorites={favorites.filter((f) => !needle || !!fuzzyMatch(f.name, needle))}
             activePath={props.activePath}
             needle={needle}
             onOpen={props.onOpen}
@@ -350,7 +351,7 @@ function FavoritesSection(props: {
           <Chevron open={false} leaf />
           <KindIcon type={f.type} />
           <span className="nm">
-            <Highlight text={f.name} needle={props.needle} />
+            <Highlight text={f.name} needle={props.needle} fuzzy />
           </span>
           <StarToggle on name={f.name} onToggle={() => props.onUnstar(f)} />
         </button>

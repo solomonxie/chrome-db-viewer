@@ -9,6 +9,11 @@ test("#workflow/<id> routes to the workflow view and is the link the UI builds",
   expect(parseRoute("#workflow/")).toEqual({ name: "settings" });
 });
 
+test("#workflows is the page listing every workflow", () => {
+  expect(parseRoute("#workflows")).toEqual({ name: "workflows" });
+  expect(routeHash({ name: "workflows" })).toBe("#workflows");
+});
+
 test("#chain/<id> still opens the same workflow", () => {
   expect(parseRoute("#chain/ch_a%2Fb")).toEqual({ name: "chain", chainId: "ch_a/b" });
   expect(parseRoute("#chain/")).toEqual({ name: "settings" });

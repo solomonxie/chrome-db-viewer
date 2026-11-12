@@ -1,9 +1,12 @@
 // Virtualised DOM grid: renders only the visible rows. Sticky header with sort, resizable
 // columns (double-click a header edge to fit), row numbers, row selection, cell cursor,
-// in-place editing, FK arrows and an open-link button on http(s) URLs. Space, Enter or a
-// double-click opens the cell box (CellBox): the whole value in a scrollable text box over the
-// cell, with a caret and partial selection, pretty-printed JSON and Copy. In an editable grid,
-// long or multi-line values are edited in the same box.
+// in-place editing, FK arrows and an open-link button on http(s) URLs. Arrow keys, Home/End and
+// PageUp/PageDown move the cell cursor. When the cursor's value doesn't fit its cell, a peek
+// (CellPeek) shows the whole value over the cell, so a click or an arrow key is enough to read
+// it; it takes no focus or clicks, so the keys keep moving. Space, Enter or a double-click opens
+// the cell box (CellBox): the value in a scrollable text box with a caret and partial selection,
+// pretty-printed JSON and Copy. In an editable grid, long or multi-line values are edited in the
+// same box.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import type { Cell, Column } from "@core/types";
@@ -61,6 +64,9 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   const [editing, setEditing] = useState<{ row: number; col: number; text: string } | null>(null);
   const [box, setBox] = useState<{ row: number; col: number; edit: boolean } | null>(null);
   const anchor = useRef<number | null>(null);
+  const [focused, setFocused] = useState(false);
+  // Esc hides the peek until the cursor moves.
+  const [peekOff, setPeekOff] = useState<string | null>(null);
 
   const colKey = p.columns.map((c) => c.name).join("\u0000") + "|" + (p.resetKey ?? "");
   useEffect(() => {
@@ -158,6 +164,10 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing || box) return;
     const cur = p.cursor ?? { row: 0, col: 0 };
+    if (e.key === "Escape" && p.cursor) {
+      setPeekOff(`${cur.row}:${cur.col}`);
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     let next: GridCursor | null = null;
     const page = Math.max(1, Math.floor(scroll.height / ROW_H) - 1);
@@ -383,6 +393,10 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
       tabIndex={0}
       onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
       onKeyDown={onKeyDown}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
       role="grid"
       aria-rowcount={p.rowCount}
       aria-colcount={p.columns.length}
@@ -419,6 +433,23 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
           })}
         </div>
         {rows}
+        {focused && !box && !editing && p.cursor && p.cursor.row < p.rowCount && p.columns[p.cursor.col] && peekOff !== `${p.cursor.row}:${p.cursor.col}` && (() => {
+          const { row, col } = p.cursor;
+          const v = p.value(row, col);
+          const w = widths[col] ?? 200;
+          if (!overflows(v, w)) return null;
+          return (
+            <CellPeek
+              key={`${row}:${col}`}
+              value={v}
+              left={lefts[col] ?? rnWidth}
+              top={HEAD_H + row * ROW_H}
+              cellWidth={w}
+              view={wrap.current ? { left: wrap.current.scrollLeft + rnWidth, right: wrap.current.scrollLeft + wrap.current.clientWidth, top: wrap.current.scrollTop + HEAD_H, bottom: wrap.current.scrollTop + wrap.current.clientHeight } : null}
+              hint={canEdit(row) ? "Space: select & copy · Enter: edit · Esc: hide" : "Space: select & copy · Esc: hide"}
+            />
+          );
+        })()}
         {box && box.row < p.rowCount && p.columns[box.col] && (
           <CellBox
             key={`${box.row}:${box.col}:${box.edit}`}
@@ -442,6 +473,44 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     </div>
   );
 });
+
+/** The value is cut off in a cell this wide (an estimate from its length; the font is ~7px a character). */
+export function overflows(v: Cell, width: number): boolean {
+  if (v === null) return false;
+  if (typeof v === "object") return true;
+  const s = cellText(v);
+  return s.includes("\n") || s.length * 7.3 + 20 > width;
+}
+
+type View = { left: number; right: number; top: number; bottom: number } | null;
+
+/** Where a box over a cell goes: at least BOX_W wide, kept inside the visible part of the grid. */
+function placeBox(cellLeft: number, cellTop: number, cellWidth: number, estH: number, v: View) {
+  const width = Math.max(cellWidth, BOX_W);
+  let left = cellLeft;
+  if (v) left = Math.max(v.left, Math.min(left, v.right - width - 8));
+  let top = cellTop;
+  if (v && top + estH > v.bottom) top = Math.max(v.top, cellTop + 32 - estH);
+  return { left, top, width };
+}
+
+const PEEK_CHARS = 2000;
+
+/** The whole value of the cursor's cell, over the cell. Clicks go through it to the cells under it. */
+function CellPeek(props: { value: Cell; left: number; top: number; cellWidth: number; view: View; hint: string }) {
+  const { text, json } = boxText(props.value);
+  const shown = text.length > PEEK_CHARS ? text.slice(0, PEEK_CHARS) + "…" : text;
+  const lines = Math.min(12, Math.max(1, shown.split("\n").length + Math.floor(shown.length / 60)));
+  const pos = placeBox(props.left, props.top, props.cellWidth, Math.min(260, lines * 18 + 44), props.view);
+  return (
+    <div className="cellpeek" style={pos} role="tooltip" aria-label="Cell value">
+      <div className="cellpeek-text mono">{shown}</div>
+      <div className="cellpeek-foot faint">
+        {text.length.toLocaleString()} chars{json ? " · JSON" : ""} · {props.hint}
+      </div>
+    </div>
+  );
+}
 
 /** Worth the box when editing: long, multi-line or structured. */
 function isLong(v: Cell): boolean {
@@ -482,7 +551,7 @@ function CellBox(props: {
   left: number;
   top: number;
   cellWidth: number;
-  view: { left: number; right: number; top: number; bottom: number } | null;
+  view: View;
   onClose: () => void;
   onSave: (text: string) => void;
 }) {
@@ -504,13 +573,7 @@ function CellBox(props: {
   }, []);
 
   const lines = Math.min(16, Math.max(2, text.split("\n").length + Math.floor(text.length / 60)));
-  const width = Math.max(props.cellWidth, BOX_W);
-  const v = props.view;
-  let left = props.left;
-  if (v) left = Math.max(v.left, Math.min(left, v.right - width - 8));
-  const estH = Math.min(BOX_MAX_H, lines * 18 + 64);
-  let top = props.top;
-  if (v && top + estH > v.bottom) top = Math.max(v.top, props.top + 32 - estH);
+  const { left, top, width } = placeBox(props.left, props.top, props.cellWidth, Math.min(BOX_MAX_H, lines * 18 + 64), props.view);
 
   const finish = (saveIt: boolean) => {
     if (done.current) return;

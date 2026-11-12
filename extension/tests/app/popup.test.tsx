@@ -7,9 +7,11 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { SavedConnection } from "../../src/app/store/db";
+import type { Chain } from "../../src/collections/model";
 
 const FIXTURE: SavedConnection[] = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/app/connections.json"), "utf8"));
 const store = new Map<string, SavedConnection>();
+const WORKFLOWS: Chain[] = JSON.parse(readFileSync(resolve(__dirname, "../fixtures/app/workflows.json"), "utf8"));
 
 vi.mock("../../src/app/store/db", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../../src/app/store/db")>();
@@ -27,6 +29,12 @@ vi.mock("../../src/app/store/db", async (importOriginal) => {
 });
 
 const { Popup } = await import("../../src/popup/Popup");
+// jsdom has no IndexedDB, so workflows live in the collections store's in-memory fallback.
+const { deleteChainRow, listChainRows, putChainRow } = await import("../../src/collections/store");
+async function setWorkflows(rows: Chain[]) {
+  for (const c of await listChainRows()) await deleteChainRow(c.id);
+  for (const c of rows) await putChainRow(c);
+}
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,9 +54,10 @@ beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => {};
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   store.clear();
   for (const c of FIXTURE) store.set(c.id, structuredClone(c));
+  await setWorkflows(WORKFLOWS);
   createTab.mockClear();
   updateTab.mockClear();
   openTabs = [];
@@ -126,7 +135,7 @@ test("there is no search box; arrow keys and Enter open the highlighted connecti
 const rowOf = (name: string) => [...host!.querySelectorAll("[role=option]")].find((r) => r.querySelector(".cpick-name")?.textContent === name)!;
 const more = (name: string) => host!.querySelector<HTMLButtonElement>(`button[aria-label='More actions for ${name}']`)!;
 
-test("the footer has New connection and Settings only; Settings reuses an open tab", async () => {
+test("the footer has New connection and Settings; Settings reuses an open tab", async () => {
   openTabs = [{ id: 2, windowId: 9, url: "chrome-extension://dbui/app.html#settings" }];
   await mount();
   expect(button("Open app")).toBeUndefined();
@@ -135,6 +144,68 @@ test("the footer has New connection and Settings only; Settings reuses an open t
   await until(() => done === 1);
   expect(updateTab).toHaveBeenCalledWith(2, { active: true });
   expect(createTab).not.toHaveBeenCalled();
+});
+
+const workflowNames = () => [...host!.querySelectorAll("[aria-label='Recent workflows'] .cpick-name")].map((e) => e.textContent);
+
+test("a Workflows section under the connections lists the 4 most recent; clicking one opens it", async () => {
+  await mount();
+  await until(() => workflowNames().length > 0);
+  expect(workflowNames()).toEqual(["Daily ad report", "Month close", "Spend check", "New users"]);
+  const daily = host!.querySelector("[aria-label='Recent workflows'] [role=listitem]")!;
+  expect(daily.textContent).toContain("2 steps · failed");
+  // Workflows aren't connections: arrow keys and Enter don't reach them.
+  expect(names()).not.toContain("Daily ad report");
+  await click(daily);
+  await until(() => done === 1);
+  expect(createTab).toHaveBeenCalledWith({ url: "chrome-extension://dbui/app.html#workflow/ch_daily" });
+});
+
+test("a connection or workflow that's already open in a tab is focused, not opened again", async () => {
+  openTabs = [
+    { id: 4, windowId: 9, url: "chrome-extension://dbui/app.html#c_pg_orders" },
+    { id: 5, windowId: 9, url: "chrome-extension://dbui/app.html#workflow/ch_daily" },
+  ];
+  await mount();
+  await until(() => workflowNames().length > 0);
+  const conn = [...host!.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent?.includes("Orders prod"))!;
+  await click(conn);
+  await until(() => done === 1);
+  expect(updateTab).toHaveBeenCalledWith(4, { active: true });
+
+  await click(host!.querySelector("[aria-label='Recent workflows'] [role=listitem]")!);
+  await until(() => done === 2);
+  expect(updateTab).toHaveBeenCalledWith(5, { active: true });
+  expect(createTab).not.toHaveBeenCalled();
+});
+
+test("All workflows opens the full list page, reusing an open one", async () => {
+  await mount();
+  await until(() => workflowNames().length > 0);
+  await click(button("All workflows"));
+  await until(() => done === 1);
+  expect(createTab).toHaveBeenCalledWith({ url: "chrome-extension://dbui/app.html#workflows" });
+
+  openTabs = [{ id: 3, windowId: 9, url: "chrome-extension://dbui/app.html#workflows" }];
+  createTab.mockClear();
+  await click(button("All workflows"));
+  await until(() => done === 2);
+  expect(updateTab).toHaveBeenCalledWith(3, { active: true });
+  expect(createTab).not.toHaveBeenCalled();
+});
+
+test("with no workflows the section offers New or import", async () => {
+  await setWorkflows([]);
+  await mount();
+  await until(() => !!button("New or import"));
+  expect(workflowNames()).toEqual([]);
+});
+
+test("turning off the demo connection in Settings hides it from the popup", async () => {
+  local.showDemo = false;
+  await mount();
+  expect(names()).toHaveLength(FIXTURE.length);
+  expect(host!.textContent).not.toContain("Demo");
 });
 
 test("New connection shows the engine picker and form inside the popup and saves there", async () => {

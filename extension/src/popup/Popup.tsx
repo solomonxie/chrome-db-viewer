@@ -1,7 +1,9 @@
 // Toolbar popup (DESIGN.md §4.1): the only connection list; there is no Home page. Saved
-// connections, grouped. Clicking one (or ↑↓ + Enter) opens it in a new tab and closes the popup.
+// connections, grouped. Clicking one (or ↑↓ + Enter) opens it in its tab (focusing the one already
+// showing it) and closes the popup. Workflows also keep one tab each.
 // Each row's ⋯ opens an action strip under it: Edit, Duplicate (password included), Move to
 // group, Export, Delete. New connection and Edit show the engine picker and form right here.
+// Under the connections, the 4 most recently changed workflows and All workflows (#workflows).
 // The footer has New connection and Settings; data files open passively (§3.12), so no button.
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,22 +25,25 @@ import {
   saveConnection,
   type SavedConnection,
 } from "../app/lib/connections";
-import { ENV_VAR } from "../app/lib/format";
+import { ENV_VAR, fmtAgo } from "../app/lib/format";
+import { focusOrOpen, parseRoute } from "../app/lib/route";
+import { allChains } from "../app/chains/chainStore";
+import type { Chain } from "../collections/model";
+
+/** How many recent workflows the popup lists; "All workflows" opens the full list. */
+export const RECENT_WORKFLOWS = 4;
 
 /**
- * Opens an app page (`#new`, `#edit/<id>`, `#file`, `#settings`) in a new tab. With `reuse`, a
- * tab already showing that page is focused instead (Settings); one-job pages always get a new tab.
+ * Opens an app page (`#new`, `#edit/<id>`, `#settings`, `#workflows`, `#workflow/<id>`). With
+ * `reuse`, a tab already showing that page is focused instead (one tab per workflow, Settings,
+ * Workflows); one-job pages (the connection editor) always get a new tab.
  */
 export async function openAppPage(hash: string, reuse = false): Promise<void> {
-  const url = chrome.runtime.getURL("app.html") + hash;
-  const tab = reuse ? (await chrome.tabs.query({ url: url + "*" }))[0] : undefined;
-  if (tab?.id) {
-    await chrome.tabs.update(tab.id, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url });
-  }
+  if (reuse) return focusOrOpen(parseRoute(hash));
+  await chrome.tabs.create({ url: chrome.runtime.getURL("app.html") + hash });
 }
+
+const RUN_LABEL = { done: "passed", failed: "failed", cancelled: "stopped", blocked: "blocked" } as const;
 
 type Panel = { id: string; mode: "menu" | "group" | "delete" | "copy" };
 type Sheet =
@@ -56,8 +61,12 @@ export function Popup(props: { onDone?: () => void }) {
   // The password, when it is remembered, so "Copy as" can offer a URL that includes it.
   const [copySecretValue, setCopySecretValue] = useState<string | null>(null);
 
+  const [workflows, setWorkflows] = useState<Chain[]>([]);
   const reload = () => void listConnections().then(setConns);
   useEffect(reload, []);
+  useEffect(() => {
+    void allChains().then((cs) => setWorkflows(cs.slice(0, RECENT_WORKFLOWS)), () => {});
+  }, []);
   const allGroups = useMemo(
     () => [...new Set((conns ?? []).map((c) => c.group).filter((g): g is string => !!g && g !== "Demo"))].sort(),
     [conns],
@@ -244,7 +253,7 @@ export function Popup(props: { onDone?: () => void }) {
         style={{ ["--envc" as string]: ENV_VAR[c.env] }}
         onMouseEnter={() => setActive(i)}
         onClick={() => void open(c)}
-        title={`Open ${c.name} in a new tab`}
+        title={`Open ${c.name} (switches to its tab when it's already open)`}
       >
         <EngineBadge driver={c.driver} demo={demo} />
         <span className="cpick-text">
@@ -275,6 +284,27 @@ export function Popup(props: { onDone?: () => void }) {
       </div>
     );
   };
+
+  const workflowRow = (w: Chain) => (
+    <div
+      key={w.id}
+      role="listitem"
+      className="cpick-opt pop-wf"
+      onClick={() => void app(`#workflow/${encodeURIComponent(w.id)}`, true)}
+      title={`Open workflow ${w.name} (switches to its tab when it's already open)`}
+    >
+      <span className="pop-wf-ico" aria-hidden>
+        <Icon name="workflow" />
+      </span>
+      <span className="cpick-text">
+        <span className="cpick-name">{w.name}</span>
+        <small>
+          {w.steps.length} step{w.steps.length === 1 ? "" : "s"}
+          {w.lastRun ? ` · ${RUN_LABEL[w.lastRun.status]} ${fmtAgo(w.lastRun.at)}` : " · not run yet"}
+        </small>
+      </span>
+    </div>
+  );
 
   if (sheet) {
     const close = () => setSheet(null);
@@ -307,19 +337,30 @@ export function Popup(props: { onDone?: () => void }) {
 
   return (
     <div className="pop">
-      <div id="pop-list" role="listbox" aria-label="Connections" className="pop-list">
-        {groups.map((g) =>
-          showHeaders ? (
-            <div key={g.group || "_"} role="group" aria-label={g.group || "Ungrouped"}>
-              <div className="cpick-group" aria-hidden>
-                {g.group || "Ungrouped"}
+      <div className="pop-list">
+        <div id="pop-list" role="listbox" aria-label="Connections">
+          {groups.map((g) =>
+            showHeaders ? (
+              <div key={g.group || "_"} role="group" aria-label={g.group || "Ungrouped"}>
+                <div className="cpick-group" aria-hidden>
+                  {g.group || "Ungrouped"}
+                </div>
+                {g.conns.map(row)}
               </div>
-              {g.conns.map(row)}
-            </div>
-          ) : (
-            g.conns.map(row)
-          ),
-        )}
+            ) : (
+              g.conns.map(row)
+            ),
+          )}
+        </div>
+        <div className="cpick-group pop-wf-head">
+          <span>Workflows</span>
+          <button className="btn ghost sm pop-wf-all" onClick={() => void app("#workflows", true)} title="Every workflow, plus New workflow and Import from file">
+            {workflows.length ? "All workflows" : "New or import"} <Icon name="chevron-right" />
+          </button>
+        </div>
+        <div role="list" aria-label="Recent workflows">
+          {workflows.map(workflowRow)}
+        </div>
       </div>
       {note && (
         <div className="pop-note" role="status">

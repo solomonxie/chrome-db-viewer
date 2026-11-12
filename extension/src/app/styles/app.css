@@ -281,17 +281,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .node .ico.k-function { color: color-mix(in srgb, var(--kw) 55%, var(--muted)); }
 .node .ico.k-schema, .node .ico.k-database, .node .ico.k-dataset { color: var(--muted); }
 .node .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.node .meta { margin-left: auto; color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; padding-left: 8px; opacity: 0; transition: opacity .12s; }
-.node:hover .meta, .node.k-schema .meta, .node.k-database .meta, .node.k-dataset .meta, .node.grp .meta { opacity: 1; }
+/* A table's row count and star take no room until hover, so long names get the full width. */
+.node .meta { margin-left: auto; color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; padding-left: 8px; flex: none; display: none; }
+.node:hover .meta, .node:focus-visible .meta, .node.k-schema .meta, .node.k-database .meta, .node.k-dataset .meta, .node.grp .meta { display: inline; }
 .node.k-schema .nm, .node.k-database .nm, .node.k-dataset .nm { font-weight: 500; }
 .node.grp { min-height: 26px; margin-top: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); }
 .node.grp:hover { background-color: transparent; color: var(--muted); }
 .node.grp .meta { margin-left: 2px; padding-left: 4px; font-size: 11px; font-weight: 500; letter-spacing: 0; }
 .node.grp .nm + .star, .node.grp .nm + .meta { margin-left: 2px; }
-.node .star { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 4px; border-radius: 5px; color: var(--faint); opacity: 0; }
+.node .star { flex: none; display: none; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 4px; border-radius: 5px; color: var(--faint); }
 .node .meta + .star { margin-left: 2px; }
 .node .nm + .star { margin-left: auto; }
-.node:hover .star, .node:focus-visible .star, .node .star.on { opacity: 1; }
+.node:hover .star, .node:focus-visible .star, .node .star.on { display: inline-flex; }
 .node .star:hover { background: var(--hover-strong); color: var(--fg); }
 .node .star.on { color: var(--warn); }
 .node .star.on svg { fill: currentColor; }
@@ -762,6 +763,9 @@ button.wf-tag:hover { text-decoration: underline; }
 .cellbox-text { flex: 1; min-height: 40px; resize: none; border: 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); padding: 8px 10px; background: var(--field); color: var(--fg); font-size: 12.5px; line-height: 18px; white-space: pre-wrap; word-break: break-word; overflow: auto; outline: none; }
 .cellbox-text:read-only { cursor: text; }
 .cellbox.editing .cellbox-text { background: var(--bg); }
+.vgrid .cellpeek { position: absolute; z-index: 4; pointer-events: none; display: flex; flex-direction: column; max-height: 260px; background: var(--elev); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); font-family: var(--font-ui); overflow: hidden; }
+.cellpeek-text { padding: 7px 10px; font-size: 12.5px; line-height: 18px; white-space: pre-wrap; word-break: break-word; overflow: hidden; color: var(--fg); min-height: 0; flex: 1; }
+.cellpeek-foot { padding: 4px 10px; font-size: 11px; border-top: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Settings › Trash */
 .trash-head { display: flex; align-items: center; gap: 8px; }
@@ -775,3 +779,8 @@ button.wf-tag:hover { text-decoration: underline; }
 .trash-name b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trash-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 600px) { .trash-row { grid-template-columns: minmax(0, 1fr) auto auto; } .trash-kind, .trash-when { display: none; } }
+
+/* Workflows page (#workflows): the left pane's Workflows list in a Settings-style card. */
+.wf-page > p { margin: 0; }
+.wf-page section { padding: 6px 4px; gap: 0; }
+.wf-page .wf-list { overflow: visible; padding: 0 2px 6px; }

@@ -7,6 +7,7 @@ import { FileSheet } from "./file/FileSheet";
 import { Settings } from "./settings/Settings";
 import { DownloadPrompt } from "./settings/DownloadPrompt";
 import { ChainView } from "./chains/ChainView";
+import { WorkflowsPage } from "./chains/WorkflowsPage";
 import { migrateSavedQueries } from "./collections/migrateSaved";
 import { startAutoBackup } from "./store/autoBackup";
 
@@ -48,7 +49,7 @@ export function App() {
   // Pages that show one thing (a connection, a file, a workflow) title the tab with its name
   // themselves once it's loaded; this only sets the fixed ones, plus a placeholder while loading.
   useEffect(() => {
-    const fixed: Partial<Record<Route["name"], string>> = { settings: "Settings", "connection-editor": "New connection", "download-prompt": "Open in viewer?" };
+    const fixed: Partial<Record<Route["name"], string>> = { settings: "Settings", workflows: "Workflows", "connection-editor": "New connection", "download-prompt": "Open in viewer?" };
     const title = fixed[route.name];
     if (title) document.title = title;
     else if (route.name === "file" && route.src) document.title = fileTitle(route.src);
@@ -71,6 +72,9 @@ export function App() {
       break;
     case "download-prompt":
       page = <DownloadPrompt downloadId={route.downloadId} />;
+      break;
+    case "workflows":
+      page = <WorkflowsPage />;
       break;
     case "chain":
       page = <ChainView key={route.chainId} chainId={route.chainId} />;

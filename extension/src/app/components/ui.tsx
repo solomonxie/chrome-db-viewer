@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Env } from "@core/types";
 import { ENGINE, ENV_VAR } from "../lib/format";
+import { fuzzyMatch, markRuns } from "../lib/fuzzy";
 import { BRAND_ICONS } from "./brandIcons";
 
 export function Modal(props: { title: ReactNode; onClose: () => void; wide?: boolean; children: ReactNode; actions?: ReactNode }) {
@@ -257,8 +258,13 @@ export function EnvTag({ env }: { env: Env }) {
 }
 
 /** Highlights `needle` occurrences in `text` (case-insensitive). */
-export function Highlight({ text, needle }: { text: string; needle: string }) {
+export function Highlight({ text, needle, fuzzy }: { text: string; needle: string; fuzzy?: boolean }) {
   if (!needle) return <>{text}</>;
+  if (fuzzy) {
+    const hit = fuzzyMatch(text, needle);
+    if (!hit) return <>{text}</>;
+    return <>{markRuns(text, hit).map(([s, on], i) => (on ? <mark key={i}>{s}</mark> : s))}</>;
+  }
   const lower = text.toLowerCase();
   const n = needle.toLowerCase();
   const out: ReactNode[] = [];

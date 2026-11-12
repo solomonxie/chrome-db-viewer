@@ -11,6 +11,8 @@ export type Route =
   | { name: "file"; src?: string; fileHandleId?: string }
   | { name: "settings"; section?: string }
   | { name: "download-prompt"; downloadId: number }
+  /** Every workflow, at #workflows: opened from the toolbar popup. */
+  | { name: "workflows" }
   /** A workflow (code name: chain), at #workflow/<id>. */
   | { name: "chain"; chainId: string };
 
@@ -31,6 +33,7 @@ export function parseRoute(hash: string, search = ""): Route {
     const section = h.slice(9);
     return section ? { name: "settings", section: decodeURIComponent(section) } : { name: "settings" };
   }
+  if (h === "workflows") return { name: "workflows" };
   // Workflows: #workflow/<id> is what the UI links to; #chain/<id> (the old name) still works.
   if (h.startsWith("workflow/") && h.length > 9) return { name: "chain", chainId: decodeURIComponent(h.slice(9)) };
   if (h.startsWith("chain/") && h.length > 6) return { name: "chain", chainId: decodeURIComponent(h.slice(6)) };
@@ -56,6 +59,8 @@ export function routeHash(route: Route): string {
       return route.section ? `#settings/${encodeURIComponent(route.section)}` : "#settings";
     case "download-prompt":
       return `#download-prompt?id=${route.downloadId}`;
+    case "workflows":
+      return "#workflows";
     case "chain":
       return `#workflow/${encodeURIComponent(route.chainId)}`;
   }
@@ -82,14 +87,41 @@ export function openInNewTab(route: Route): void {
   window.open(routeUrl(route), "_blank");
 }
 
-/** A connection always opens in its own new tab (#c_<id>); the current tab stays where it is. */
-export function openConnectionTab(connectionId: string): void {
-  openInNewTab({ name: "connection", connectionId });
+/**
+ * Each connection, workflow and fixed page (Settings, Workflows) has one tab: opening it again
+ * focuses the tab already showing it, else opens a new one. Pages for one job (the connection
+ * editor, a file) always get a new tab (openInNewTab).
+ */
+export async function focusOrOpen(route: Route): Promise<void> {
+  const c = typeof chrome !== "undefined" ? chrome : undefined;
+  if (!c?.tabs?.query || !c.runtime?.getURL) {
+    openInNewTab(route);
+    return;
+  }
+  const page = c.runtime.getURL("app.html");
+  const url = page + routeHash(route);
+  // Only our own pages (readable without the "tabs" permission); the #fragment is compared
+  // here because url patterns ignore it.
+  const tabs = await c.tabs.query({ url: page + "*" });
+  const tab = tabs.find((t) => t.url === url);
+  if (tab?.id !== undefined) {
+    await c.tabs.update(tab.id, { active: true });
+    await c.windows?.update(tab.windowId, { focused: true });
+  } else {
+    await c.tabs.create({ url });
+  }
+}
+
+/** A connection opens in its tab (#c_<id>): the one already showing it, else a new one. */
+export function openConnectionTab(connectionId: string): Promise<void> {
+  return focusOrOpen({ name: "connection", connectionId });
 }
 
 export function navigate(route: Route, opts: { newTab?: boolean } = {}): void {
   if (opts.newTab) {
-    openInNewTab(route);
+    // Connections, workflows and the fixed pages keep one tab each.
+    if (route.name === "connection" || route.name === "chain" || route.name === "settings" || route.name === "workflows") void focusOrOpen(route);
+    else openInNewTab(route);
     return;
   }
   const hasSrc = route.name === "file" && !!route.src;

@@ -10,6 +10,7 @@ import { moveToTrash } from "../store/trash";
 import { forgetSchemaCache } from "../store/schemaCache";
 import { ENGINE } from "./format";
 import { openConnectionTab } from "./route";
+import { loadShowDemo } from "./demoSetting";
 
 export type { SavedConnection } from "../store/db";
 
@@ -20,8 +21,11 @@ export async function listConnections(): Promise<db.SavedConnection[]> {
   } catch {
     /* IndexedDB unavailable (tests, private mode) */
   }
+  const saved = rows.filter((r) => r.id !== DEMO_CONNECTION_ID);
+  // Settings → Connections can hide the demo; a #c_demo link still opens it (loadConnection).
+  if (!(await loadShowDemo())) return saved;
   const demo: db.SavedConnection = { ...DEMO_CONNECTION, group: "Demo", createdAt: 0 };
-  return [...rows.filter((r) => r.id !== DEMO_CONNECTION_ID), demo];
+  return [...saved, demo];
 }
 
 export async function loadConnection(id: string): Promise<db.SavedConnection | undefined> {
@@ -35,12 +39,12 @@ export async function saveConnection(cfg: db.SavedConnection): Promise<void> {
 }
 
 /**
- * Opens a connection in a new browser tab (never reusing one, even for the same connection)
- * and records when it was last used. The tab opens first, while the click still counts as
- * a user gesture for the window.open fallback.
+ * Opens a connection in its one tab (focusing it when it's already open) and records when it
+ * was last used. The tab opens first, while the click still counts as a user gesture for the
+ * window.open fallback.
  */
 export async function openConnection(c: db.SavedConnection): Promise<void> {
-  openConnectionTab(c.id);
+  await openConnectionTab(c.id);
   if (!isDemo(c)) await saveConnection({ ...c, lastUsedAt: Date.now() }).catch(() => {});
 }
 
