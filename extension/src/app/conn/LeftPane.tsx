@@ -8,6 +8,7 @@ import { readSchemaCache, writeSchemaCache } from "../store/schemaCache";
 import { fmtAgo, fmtMs } from "../lib/format";
 import { Highlight } from "../components/ui";
 import { fuzzyMatch } from "../lib/fuzzy";
+import { roundedMeta } from "../lib/approxCount";
 import { pathKey, type ConnCtx } from "./model";
 import { Icon } from "../components/Icon";
 import { isFavorite, loadFavorites, saveFavorites, toggleFavorite, type Favorite } from "../lib/favorites";
@@ -216,7 +217,11 @@ export function LeftPane(props: {
           <span className="nm">
             <Highlight text={n.name} needle={needle} fuzzy />
           </span>
-          {n.meta && <span className="meta">{n.meta}</span>}
+          {n.meta && (
+            <span className="meta" title={/^~?\d+$/.test(n.meta) ? `About ${Number(n.meta.replace("~", "")).toLocaleString()} rows (estimate)` : undefined}>
+              {roundedMeta(n.meta, n.type)}
+            </span>
+          )}
           {openable && <StarToggle on={isFavorite(favorites, n.path)} name={n.name} onToggle={() => star(n)} />}
         </button>,
       );

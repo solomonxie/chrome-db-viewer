@@ -1060,7 +1060,9 @@ There's no Chrome side panel.
   - **Schema**: object tree with fuzzy search (a substring, or the letters in order: `dexpres`
     finds `data_export_results`; case and spaces ignored); matched letters are highlighted. A
     filter menu chooses which object types to show. A table's row count and star appear on hover
-    and take no width otherwise, so long names use the whole row.
+    and take no width otherwise, so long names use the whole row. Row counts are rough marks,
+    not exact numbers: `<100`, `~450`, `~12k`, `~2.4M`, `~24M`, `~1.1B` (hover shows the full
+    estimate). Object counts on schemas and groups stay exact.
     The loaded items and open branches are cached per connection (IndexedDB `schemaCache`), so
     reopening a connection shows the last list at once. The root and the open branches then
     reload in the background and replace what's cached; folded branches load fresh when opened.
