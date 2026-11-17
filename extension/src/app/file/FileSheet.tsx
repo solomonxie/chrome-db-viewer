@@ -39,7 +39,8 @@ async function openFileDriver(cfg: ConnectionConfig): Promise<{ driver: Driver; 
   return { driver, table: node.name };
 }
 
-export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: string }) {
+/** `fileName`: the name when the URL doesn't show it (a download's Content-Disposition name). */
+export function FileSheet({ src, fileHandleId, fileName }: { src?: string; fileHandleId?: string; fileName?: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
 
   const openDemo = useCallback(async (name: string) => {
@@ -64,9 +65,9 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
         const options: Record<string, unknown> = {};
         let size: number | undefined;
         if (src) {
-          name = decodeURIComponent(src.split(/[?#]/)[0]!.split("/").pop() || src);
+          name = fileName || decodeURIComponent(src.split(/[?#]/)[0]!.split("/").pop() || src);
           options.src = src;
-          void rememberUrl(src).catch(() => {});
+          void rememberUrl(src, fileName).catch(() => {});
         } else if (fileHandleId) {
           const rec = await db.get("recentFiles", fileHandleId);
           if (!rec?.handle) throw new Error("This recent file is no longer available. Open it again.");
@@ -93,7 +94,7 @@ export function FileSheet({ src, fileHandleId }: { src?: string; fileHandleId?: 
     return () => {
       cancelled = true;
     };
-  }, [src, fileHandleId]);
+  }, [src, fileHandleId, fileName]);
 
   if (phase.kind === "loading") return <div className="empty">Opening…</div>;
   if (phase.kind === "pick") return <PickFile />;
@@ -166,7 +167,7 @@ function PickFile() {
         {files.length > 0 && (
           <div className="flist">
             {files.map((f) => (
-              <button key={f.id} className="frow" onClick={() => navigate(f.src ? { name: "file", src: f.src } : { name: "file", fileHandleId: f.id })}>
+              <button key={f.id} className="frow" onClick={() => navigate(f.src ? { name: "file", src: f.src, fileName: f.fileName } : { name: "file", fileHandleId: f.id })}>
                 <span className="fn">{f.name}</span>
               </button>
             ))}

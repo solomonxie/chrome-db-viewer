@@ -1,0 +1,7 @@
+{
+  "kind": "bigquery#datasetList",
+  "etag": "ghi==",
+  "datasets": [
+    { "kind": "bigquery#dataset", "id": "dbui-test:shop", "datasetReference": { "datasetId": "shop", "projectId": "dbui-test" }, "location": "us-central1" }
+  ]
+}

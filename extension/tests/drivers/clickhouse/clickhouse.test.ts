@@ -226,3 +226,16 @@ test("extractTtl reads the TTL clause from SHOW CREATE TABLE", () => {
   expect(extractTtl(ddl)).toBe("d + toIntervalYear(100)");
   expect(extractTtl("CREATE TABLE t (a Int8) ENGINE = Memory")).toBeUndefined();
 });
+
+test("listAllObjects: system.tables in every database", async () => {
+  const { fetch, calls } = stubFetch((_url, body) => new Response(body.startsWith("SELECT version()") ? versionBody : fx("all-tables.jsonl")));
+  const driver = createDriver({ fetch, newQueryId: () => "qid-s" });
+  await driver.connect(cfg);
+  expect((await driver.listAllObjects!()).objects).toEqual([
+    { path: ["analytics", "events"], name: "events", type: "table", hasChildren: false, meta: "analytics" },
+    { path: ["analytics", "events_daily_mv"], name: "events_daily_mv", type: "materialized_view", hasChildren: false, meta: "analytics" },
+    { path: ["staging", "events_v"], name: "events_v", type: "view", hasChildren: false, meta: "staging" },
+  ]);
+  expect(calls[1]!.body).toContain("FROM system.tables");
+  expect(Object.fromEntries(calls[1]!.url.searchParams)).toMatchObject({ readonly: "1" });
+});

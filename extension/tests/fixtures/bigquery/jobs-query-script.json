@@ -1,0 +1,9 @@
+{
+  "kind": "bigquery#queryResponse",
+  "jobReference": { "projectId": "dbui-test", "jobId": "script_job_1", "location": "US" },
+  "schema": { "fields": [{ "name": "n", "type": "INTEGER", "mode": "NULLABLE" }] },
+  "rows": [{ "f": [{ "v": "4" }] }],
+  "totalRows": "1",
+  "totalBytesProcessed": "3072",
+  "jobComplete": true
+}

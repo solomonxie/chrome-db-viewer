@@ -6,7 +6,7 @@
 // The pending prompt's details are in chrome.storage.session under `downloadPrompt:<id>`
 // (PendingDownloadPrompt below); the UI reads that, then calls openDownloadInDbui or dismisses.
 
-import { classifyFilename, classifyMime, classifyUrl, isExcludedHost, type PreviewKind } from "./rules";
+import { classifyFilename, classifyMime, classifyUrl, extensionForMime, isExcludedHost, type PreviewKind } from "./rules";
 import { loadPreviewSettings, type PreviewSettings } from "./settings";
 import { buildSrcUrl } from "./src-param";
 
@@ -86,7 +86,23 @@ export function localFileToOpen(item: Pick<chrome.downloads.DownloadItem, "url" 
 export function navigatedDataToOpen(item: chrome.downloads.DownloadItem, settings: PreviewSettings, ownExtensionId?: string): string | null {
   const url = item.finalUrl || item.url;
   if (!isRefetchable(url)) return null;
-  return decideDownloadPrompt(item, settings, ownExtensionId).prompt ? viewerUrlFor(url) : null;
+  const decision = decideDownloadPrompt(item, settings, ownExtensionId);
+  return decision.prompt ? viewerUrlFor(url, nameUnlessInUrl(url, decision.filename, item.mime ?? "", settings)) : null;
+}
+
+/**
+ * The name the viewer reads the format from, when the URL doesn't show it (a Google Sheets
+ * "Download → CSV" link is …/export?format=csv&gid=0; only Content-Disposition says "Sheet1.csv").
+ * Without a data extension, one from the MIME type is added ("export" + text/csv → "export.csv").
+ */
+function nameUnlessInUrl(url: string, filename: string, mime: string, settings: PreviewSettings): string | undefined {
+  return classifyFilename(urlFileName(url), settings) ? undefined : dataFileName(filename, mime, settings);
+}
+
+export function dataFileName(filename: string, mime: string, settings: PreviewSettings): string | undefined {
+  if (filename && classifyFilename(filename, settings)) return filename;
+  const ext = extensionForMime(mime, settings);
+  return ext ? `${filename || "download"}.${ext}` : undefined;
 }
 
 function isRefetchable(url: string): boolean {
@@ -131,8 +147,8 @@ export async function dismissDownloadPrompt(downloadId: number): Promise<void> {
 }
 
 /** The page a finished/refetchable download opens in: app.html#file. */
-export function viewerUrlFor(src: string): string {
-  return buildSrcUrl(chrome.runtime.getURL("app.html"), src, "#file");
+export function viewerUrlFor(src: string, name?: string): string {
+  return buildSrcUrl(chrome.runtime.getURL("app.html"), src, "#file", name);
 }
 
 function fileUrlFromPath(path: string): string {
@@ -187,7 +203,8 @@ export async function openDownloadInDbui(downloadId: number): Promise<string> {
 
   let target: string;
   if (isRefetchable(url) && pending?.refetchable !== false) {
-    target = viewerUrlFor(url);
+    const settings = await loadPreviewSettings();
+    target = viewerUrlFor(url, nameUnlessInUrl(url, pending?.filename ?? baseName(item?.filename ?? ""), pending?.mime ?? item?.mime ?? "", settings));
   } else {
     const done = item?.state === "complete" ? item : await waitForDownloadComplete(downloadId);
     target = viewerUrlFor(fileUrlFromPath(done.filename));

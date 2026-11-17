@@ -5,9 +5,9 @@ import type { ConnectionConfig, ObjectType } from "@core/types";
 import type { Chain, Collection, Folder, NamedQuery } from "../../collections/model";
 
 const DB_NAME = "dbui";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
-export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles" | "collections" | "folders" | "namedQueries" | "chains" | "trash" | "schemaCache" | "chainResults";
+export type StoreName = "connections" | "history" | "queries" | "recentFiles" | "groups" | "handles" | "collections" | "folders" | "namedQueries" | "chains" | "trash" | "schemaCache" | "schemaCatalog" | "chainResults";
 
 /**
  * A deleted item, kept until it's deleted from the Trash (src/app/store/trash.ts). `rows` are the
@@ -71,6 +71,8 @@ export interface RecentFile {
   /** FileSystemFileHandle (structured-cloneable) or a URL opened via ?src=. */
   handle?: FileSystemFileHandle;
   src?: string;
+  /** For a src whose URL doesn't show the format: the download's name ("Sheet1.csv"). */
+  fileName?: string;
   size?: number;
   openedAt: number;
   /** Restored from a backup without its handle; open the file again to use it. */
@@ -90,6 +92,14 @@ export interface SchemaCacheRow {
   /** pathKey(parent) → its children. */
   children: Record<string, import("@core/types").ObjectNode[]>;
   expanded: string[];
+  at: number;
+}
+
+/** Every object name in a connection, for the schema search (id = connection id). */
+export interface SchemaCatalogRow {
+  id: string;
+  objects: import("@core/types").ObjectNode[];
+  notes: string[];
   at: number;
 }
 
@@ -128,6 +138,8 @@ type Row<S extends StoreName> = S extends "connections"
                     ? TrashItem
                     : S extends "schemaCache"
                       ? SchemaCacheRow
+                      : S extends "schemaCatalog"
+                        ? SchemaCatalogRow
                       : S extends "chainResults"
                         ? ChainResultsRow
                         : Group;
@@ -140,7 +152,7 @@ function open(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ["connections", "queries", "recentFiles", "groups", "handles", "trash", "schemaCache", "chainResults"]) {
+      for (const name of ["connections", "queries", "recentFiles", "groups", "handles", "trash", "schemaCache", "schemaCatalog", "chainResults"]) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("history")) {

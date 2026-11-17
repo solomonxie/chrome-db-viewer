@@ -98,6 +98,7 @@ export const ENGINES: EngineSpec[] = [
       { key: "projectId", label: "Billing project", kind: "text", placeholder: "my-project (blank: first visible project)" },
       { key: "dataset", label: "Default dataset", kind: "text", placeholder: "optional" },
       { key: "location", label: "Location", kind: "text", placeholder: "US" },
+      { key: "extraProjects", label: "Other projects", kind: "text", placeholder: "optional: proj-a, proj-b", hint: "Projects where only some datasets are shared with you. BigQuery's project list leaves them out, so name them here to see them in the tree and search." },
       { key: "keyFile", label: "Key file", kind: "file", accept: ".json", when: { key: "auth", equals: ["service-account", "adc"] } },
       { key: "keyStorage", label: "Keep the key", kind: "select", default: "handle", when: { key: "auth", equals: "service-account" }, options: [
         { value: "handle", label: "As a file handle (stays on disk)" },

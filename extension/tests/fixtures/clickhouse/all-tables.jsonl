@@ -1,0 +1,5 @@
+["database","name","engine"]
+["String","String","String"]
+["analytics","events","MergeTree"]
+["analytics","events_daily_mv","MaterializedView"]
+["staging","events_v","View"]

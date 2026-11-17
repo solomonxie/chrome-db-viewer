@@ -181,3 +181,13 @@ test("hasStatement ignores trailing comments and semicolons", () => {
   expect(hasStatement(" ; -- done\n /* c */ ")).toBe(false);
   expect(hasStatement("; SELECT 1")).toBe(true);
 });
+
+test("listAllObjects: every table and view, with the tree's group paths", async () => {
+  const { driver } = await open();
+  expect((await driver.listAllObjects!()).objects).toEqual([
+    { path: ["tables", "customers"], name: "customers", type: "table", hasChildren: false },
+    { path: ["tables", "order_items"], name: "order_items", type: "table", hasChildren: false },
+    { path: ["views", "order_totals"], name: "order_totals", type: "view", hasChildren: false },
+    { path: ["tables", "orders"], name: "orders", type: "table", hasChildren: false },
+  ]);
+});

@@ -490,7 +490,7 @@ warning; Chrome evaluates the rule itself and dbui runs no content scripts.
 | How the file arrives | What dbui does |
 |---|---|
 | You click a link or type a URL ending in a data extension | A redirect rule sends the tab to `app.html?src=<url>`, and the viewer loads the file |
-| Opening a link turns into a download (a signed URL, a console "Download" that redirects, `Content-Disposition: attachment`, no extension in the URL) | `downloads.onDeterminingFilename` recognises the file name or MIME type. Because a tab navigated to the URL, dbui can fetch it again, so it cancels the download before anything is saved and opens the sheet directly, with no prompt |
+| Opening a link turns into a download (a signed URL, a console "Download" that redirects, `Content-Disposition: attachment`, no extension in the URL) | `downloads.onDeterminingFilename` recognises the file name or MIME type. Because a tab navigated to the URL, dbui can fetch it again, so it cancels the download before anything is saved and opens the sheet directly, with no prompt. When the URL shows no extension (a Google Sheets "Download → CSV" link is `…/export?format=csv`), the viewer link carries the download's name as `?name=Sheet1.csv&src=…` (or the URL's last part plus an extension from the MIME type), and the format is read from that name |
 | A page saves a file itself (an Export button that builds a `blob:`, `<a download>`, *Save link as…*) | `downloads.onCreated` recognises the file name or MIME type and shows an **Open in dbui** prompt; the file is saved as usual. A JavaScript export (file-saver's `saveAs`) has no name yet in onCreated, and is often `text/plain`, so the check runs again in `onDeterminingFilename` with the suggested name (`orders-chart.csv`) |
 | A local file in Chrome (`file:///…/data.csv`) | Same redirect rule. Needs **Allow access to file URLs** turned on for dbui on `chrome://extensions`; the settings page links there and says so |
 | Double-clicking a file in Finder | Not possible. macOS can't make an extension the app for a file type. Drag it onto the dbui tab or use `⌘O` |
@@ -654,6 +654,23 @@ Collection "Ad performance"           variables: client_id, start_date, end_date
   as a tooltip), and the run stops at the first error, marking the statement that failed.
   The Rendered tab shows all statements, the Parameters panel collects variables across
   them, and the BigQuery dry run estimates each statement and shows the total.
+- **BigQuery scripts.** A variable from `DECLARE` (or `SET`, a `CREATE TEMP FUNCTION/TABLE`)
+  only exists inside one BigQuery script job, so on BigQuery text with any of those isn't
+  split: **Run all** sends it as one script job and still shows **one result tab per query**
+  in it (Result 1, Result 2 …, each with its own SQL as the tooltip; DECLARE/SET make no tab).
+  The driver's `runScript` reads the script's child jobs (`jobs.list?parentJobId=`) and
+  fetches each one's rows. An error fails the whole script on one tab. **Run**
+  sends the statement at the cursor together with the setup statements above it. The dry run
+  covers the whole script; if BigQuery won't dry-run it, there's no estimate and it still runs.
+  A workflow query step does the same. Other engines split as above.
+- **Export query results.** Under the results, next to the row count, **Export** (shown once
+  a result has columns) offers **CSV**, **TSV**, **JSON array** and **JSON Lines**. It saves the
+  shown result: the active Result tab of a multi-statement run, or only the selected rows when
+  rows are selected (the button then reads **Export selected**). NULL is an empty field in
+  CSV/TSV; JSON and arrays are written as JSON text there and kept as values in JSON. The file
+  is `<tab title>_<YYYY-MM-DD>.<ext>` through Chrome's save dialog (a download when there is
+  none). It's what the query fetched (up to 2,000 rows a statement); for all rows of a big
+  table, use the table view's Export or a workflow Export step.
 - **A collection** has a default connection, collection variables, and **environments**
   (like Postman): named sets of values, e.g. `dev` → `client_id = 1111…`, `prod-client-A` →
   `client_id = 4c1e…`. A dropdown picks the active one.
@@ -1063,6 +1080,26 @@ There's no Chrome side panel.
     and take no width otherwise, so long names use the whole row. Row counts are rough marks,
     not exact numbers: `<100`, `~450`, `~12k`, `~2.4M`, `~24M`, `~1.1B` (hover shows the full
     estimate). Object counts on schemas and groups stay exact.
+    The fuzzy filter only sees loaded items, so the search also filters a saved list of every
+    object name in the connection (`Driver.listAllObjects`, IndexedDB `schemaCatalog`), locally
+    and at once as you type, with no database round trip. Matching tables, views and (BigQuery)
+    datasets that aren't loaded show under **In the database**, each with where it lives
+    (project.dataset, schema or database). A table hit opens like a tree node; a dataset hit
+    loads and expands its branch and clears the search. The list is listed again in the
+    background when the connection opens and the saved one is over an hour old (the old one
+    answers meanwhile), and by **Refresh** under the hits, next to "N names · listed 5 min ago".
+    Matching: the text splits into terms at spaces and dots, every term must appear in
+    `parent.name`, and `-` matches `_` (BigQuery dataset names can't hold `-`, but people paste
+    UUIDs with them). Up to 200 hits.
+    Listing per engine: BigQuery lists each visible project's datasets (billing project first,
+    then the connection's **Other projects**, then the project list; all of them, 6 projects at a time), and runs one
+    `region-<location>.INFORMATION_SCHEMA.TABLES` query per location the project's datasets use
+    (a normal query job under the cost guard; BigQuery bills a small minimum for each). That view needs project-wide rights; where it's denied (only some datasets shared with you), the project's datasets in that region are listed one by one with `tables.list` instead.
+    Postgres `pg_class`, ClickHouse `system.tables`, DuckDB `duckdb_tables()`/`duckdb_views()`,
+    SQLite `sqlite_schema`. Redis and data files have no list. Places the listing couldn't reach (a project it can't read) are skipped quietly; during a refresh an empty result says "No match in the saved names. Still refreshing…".
+    BigQuery's project list leaves out projects where only some datasets are shared with you;
+    the connection's **Other projects** field (`options.extraProjects`) adds them to the tree
+    and the list.
     The loaded items and open branches are cached per connection (IndexedDB `schemaCache`), so
     reopening a connection shows the last list at once. The root and the open branches then
     reload in the background and replace what's cached; folded branches load fresh when opened.

@@ -8,6 +8,8 @@ import { readSchemaCache, writeSchemaCache } from "../store/schemaCache";
 import { fmtAgo, fmtMs } from "../lib/format";
 import { Highlight } from "../components/ui";
 import { fuzzyMatch } from "../lib/fuzzy";
+import { searchCatalog } from "@core/search";
+import { CATALOG_MAX_AGE_MS, readSchemaCatalog, writeSchemaCatalog } from "../store/schemaCatalog";
 import { roundedMeta } from "../lib/approxCount";
 import { pathKey, type ConnCtx } from "./model";
 import { Icon } from "../components/Icon";
@@ -162,7 +164,27 @@ export function LeftPane(props: {
     if (!open && !tree.children.has(k)) void load(n.path);
   };
 
+  // A dataset found by search: load its ancestors and it, expand them, and clear the search.
+  const reveal = async (path: ObjectPath) => {
+    const keys: string[] = [];
+    for (let i = 1; i <= path.length; i++) {
+      const p = path.slice(0, i);
+      keys.push(pathKey(p));
+      if (!tree.children.has(pathKey(p))) await load(p);
+    }
+    setTree((t) => ({ ...t, expanded: new Set([...t.expanded, ...keys]) }));
+    setQ("");
+  };
+
   const needle = q.trim().toLowerCase();
+  const catalog = useCatalog(ctx, props.refreshKey);
+  const catalogHits = useMemo(() => searchCatalog(catalog.objects, needle), [catalog.objects, needle]);
+  // Hits already in the loaded tree show there; the rest go under "In the database".
+  const loadedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const nodes of tree.children.values()) for (const n of nodes) keys.add(pathKey(n.path));
+    return keys;
+  }, [tree.children]);
 
   // With a search, show loaded nodes whose name (or a descendant's) matches; unmatched branches hide.
   const matches = useCallback(
@@ -283,6 +305,17 @@ export function LeftPane(props: {
             onUnstar={star}
           />
           {renderLevel([], 0)}
+          {needle && driver.listAllObjects && (
+          <FoundSection
+            catalog={catalog}
+            hits={catalogHits.filter((n) => !loadedKeys.has(pathKey(n.path)) && !hidden.has(n.type))}
+            total={catalogHits.length}
+            activePath={props.activePath}
+            needle={needle}
+            onOpen={props.onOpen}
+            onReveal={reveal}
+          />
+          )}
         </div>
       </>
     ),
@@ -361,6 +394,122 @@ function FavoritesSection(props: {
           <StarToggle on name={f.name} onToggle={() => props.onUnstar(f)} />
         </button>
       ))}
+    </div>
+  );
+}
+
+interface Catalog {
+  /** Every object name, from the last listing (empty until one exists). */
+  objects: ObjectNode[];
+  /** What the last listing couldn't reach (a project it can't read, a region that failed …). */
+  notes: string[];
+  /** When it was listed; 0 when never. */
+  at: number;
+  refreshing: boolean;
+  error?: string;
+}
+
+/**
+ * The connection's object names for the schema search: the saved list right away, refreshed in
+ * the background when it's older than CATALOG_MAX_AGE_MS (or missing), and on refresh().
+ */
+function useCatalog(ctx: ConnCtx, refreshKey: number): Catalog & { refresh: () => void } {
+  const { driver, nodeTypes } = ctx;
+  const id = ctx.cfg.id;
+  const [state, setState] = useState<Catalog>({ objects: [], notes: [], at: 0, refreshing: false });
+  const running = useRef<AbortController | null>(null);
+
+  const refresh = useCallback(() => {
+    if (!driver.listAllObjects) return;
+    running.current?.abort();
+    const ac = new AbortController();
+    running.current = ac;
+    setState((s) => ({ ...s, refreshing: true, error: undefined }));
+    driver.listAllObjects(ac.signal).then(
+      ({ objects, notes }) => {
+        if (ac.signal.aborted) return;
+        const row = { id, objects, notes: notes ?? [], at: Date.now() };
+        setState({ ...row, refreshing: false });
+        void writeSchemaCatalog(row);
+      },
+      (e: Error) => !ac.signal.aborted && setState((s) => ({ ...s, refreshing: false, error: e.message })),
+    );
+  }, [driver, id]);
+
+  useEffect(() => {
+    if (!driver.listAllObjects) return;
+    let cancelled = false;
+    void readSchemaCatalog(id).then((row) => {
+      if (cancelled) return;
+      if (row) setState({ objects: row.objects, notes: row.notes, at: row.at, refreshing: false });
+      if (!row || Date.now() - row.at > CATALOG_MAX_AGE_MS) refresh();
+    });
+    return () => {
+      cancelled = true;
+      running.current?.abort();
+    };
+  }, [driver, id, refresh, refreshKey]);
+
+  // Hits open like tree nodes, so the table tab needs to know their types.
+  useEffect(() => {
+    for (const n of state.objects) nodeTypes.set(pathKey(n.path), n.type);
+  }, [state.objects, nodeTypes]);
+
+  return { ...state, refresh };
+}
+
+/** Search hits not already shown in the loaded tree, each with where it lives, and Refresh. */
+function FoundSection(props: {
+  catalog: Catalog & { refresh: () => void };
+  hits: ObjectNode[];
+  /** Matches in the catalog, including those the tree shows. */
+  total: number;
+  activePath: ObjectPath | null;
+  needle: string;
+  onOpen: (path: ObjectPath, newTab: boolean) => void;
+  /** A container hit (a dataset): open its branch in the tree. */
+  onReveal: (path: ObjectPath) => void;
+}) {
+  const { catalog } = props;
+  const active = props.activePath ? pathKey(props.activePath) : null;
+  const listed = catalog.at > 0;
+  let empty = "";
+  if (props.hits.length === 0) {
+    if (!listed) empty = catalog.refreshing ? "Listing every table…" : "";
+    else if (props.total > 0) empty = "All matches are shown above.";
+    else if (catalog.refreshing) empty = "No match in the saved names. Still refreshing…";
+    else empty = "No other tables or views match.";
+  }
+  return (
+    <div className="favorites found" role="group" aria-label="In the database">
+      <div className="fav-head">In the database</div>
+      {empty && <div className="empty">{empty}</div>}
+      {props.hits.map((n) => (
+        <button
+          key={pathKey(n.path)}
+          className={"node" + (active === pathKey(n.path) ? " active" : "")}
+          style={{ paddingLeft: 4 }}
+          onClick={(e) => (n.hasChildren ? props.onReveal(n.path) : props.onOpen(n.path, e.altKey || e.metaKey))}
+          title={(n.meta ? n.meta + "." : "") + n.name}
+          role="treeitem"
+        >
+          <Chevron open={false} leaf />
+          <KindIcon type={n.type} />
+          <span className="nm">
+            <Highlight text={n.name} needle={props.needle} fuzzy />
+          </span>
+          {n.meta && <span className="loc">{n.meta}</span>}
+        </button>
+      ))}
+      {catalog.error && <div className="err">Refresh failed: {catalog.error}</div>}
+      <div className="catalog-foot">
+        <span className="muted">
+          {catalog.refreshing ? "Refreshing names…" : listed ? `${catalog.objects.length.toLocaleString()} names · listed ${fmtAgo(catalog.at)}` : ""}
+        </span>
+        <button className="btn ghost sm" onClick={catalog.refresh} disabled={catalog.refreshing} title="List every table name again">
+          Refresh
+        </button>
+      </div>
     </div>
   );
 }

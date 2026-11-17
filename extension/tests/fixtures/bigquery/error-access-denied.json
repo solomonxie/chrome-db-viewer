@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": 403,
+    "message": "Access Denied: Table locked-proj:region-us.INFORMATION_SCHEMA.TABLES: User does not have permission to query table locked-proj:region-us.INFORMATION_SCHEMA.TABLES.",
+    "errors": [{ "message": "Access Denied", "domain": "global", "reason": "accessDenied" }],
+    "status": "PERMISSION_DENIED"
+  }
+}

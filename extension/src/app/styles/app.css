@@ -298,6 +298,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 .node .star.on svg { fill: currentColor; }
 .node .star .ico { width: 13px; height: 13px; }
 .favorites { display: flex; flex-direction: column; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
+.found .loc { margin-left: auto; padding-left: 8px; color: var(--faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.found .catalog-foot { display: flex; align-items: center; gap: 8px; margin: 6px 8px 8px; font-size: 11px; }
+.found .catalog-foot .muted { flex: 1; min-width: 0; color: var(--faint); }
+.found .empty, .found .err { margin: 2px 8px; font-size: 12px; }
 .fav-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); padding: 8px 8px 4px; }
 .hlist { overflow: auto; flex: 1; padding: 0 6px 10px; display: flex; flex-direction: column; gap: 1px; }
 .hitem { border: 0; background: none; text-align: left; padding: 6px 8px; border-radius: var(--r); display: flex; flex-direction: column; gap: 2px; width: 100%; }

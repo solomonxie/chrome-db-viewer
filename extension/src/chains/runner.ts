@@ -23,6 +23,7 @@ import { EMPTY_LIBRARY, type ChainLibrary } from "./library";
 import { createLocalDb, stepTable, type ExportFormat, type LocalDb } from "./local";
 import { sqlIdent } from "./miniRender";
 import { splitStatementsRaw } from "../collections/split";
+import { isWholeScript, needsScript } from "../collections/bqScript";
 
 export const DEFAULT_VALUE_CAP = 10_000;
 export const DEFAULT_PREVIEW_ROWS = 200;
@@ -306,7 +307,10 @@ async function renderQuery(ctx: Ctx, step: ChainStep, vars: Record<string, unkno
   for (const v of res.usedVars) checkValueCap(v, vars[v], ctx.cap);
   const parts = splitStatementsRaw(res.sql);
   const body = parts.length ? parts[parts.length - 1]! : res.sql.trim().replace(/;\s*$/, "");
-  const statements = [...parts.slice(0, -1), withCtes(ctes, body, dialect)];
+  let statements = [...parts.slice(0, -1), withCtes(ctes, body, dialect)];
+  // A BigQuery script (DECLARE/SET …) must run as one job, or the variables are gone by the
+  // last statement. Sent whole, the job's result is the last statement's.
+  if (dialect === "bigquery" && needsScript(statements)) statements = [statements.join(";\n")];
   return { sql: statements.join(";\n\n"), statements, body, ctes, usedVars: res.usedVars };
 }
 
@@ -752,7 +756,13 @@ async function execute(chain: Chain, opts: RunOptions, deps: ChainDeps, emitOut:
         if (driver.capabilities().costEstimate && driver.estimate) {
           // Steps whose SQL wasn't known before the run (variables set by earlier steps) get their dry run here.
           let bytes = 0;
-          for (const sql of r.statements) bytes += (await driver.estimate({ sql }, ctx.signal)).bytes;
+          // A BigQuery script may not take a dry run; then it runs without an estimate.
+          const script = cfg.driver === "bigquery" && isWholeScript(r.statements);
+          try {
+            for (const sql of r.statements) bytes += (await driver.estimate({ sql }, ctx.signal)).bytes;
+          } catch (e) {
+            if (!script) throw e;
+          }
           const est = { bytes };
           const limit = costLimit(cfg);
           if (est.bytes > limit) {

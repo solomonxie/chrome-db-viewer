@@ -1,0 +1,13 @@
+{
+  "columns": [
+    { "name": "id", "type": "int8", "nullable": false },
+    { "name": "note", "type": "text", "nullable": true },
+    { "name": "meta", "type": "jsonb", "nullable": true },
+    { "name": "id", "type": "int8", "nullable": true }
+  ],
+  "rows": [
+    [1, "plain", { "a": 1 }, 10],
+    [2, "has, comma and \"quote\"\nnew line", null, null],
+    [3, "tab\there", [1, 2], 30]
+  ]
+}

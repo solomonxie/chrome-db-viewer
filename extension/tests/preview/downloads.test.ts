@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { decideDownloadPrompt, handleDownloadCreated, localFileToOpen, navigatedDataToOpen, openDownloadInDbui } from "../../src/preview/downloads";
+import { dataFileName, decideDownloadPrompt, handleDownloadCreated, localFileToOpen, navigatedDataToOpen, openDownloadInDbui } from "../../src/preview/downloads";
 import { syncPreviewRules } from "../../src/preview/index";
 import { DEFAULT_PREVIEW_SETTINGS, addExcludedDomain, type PreviewSettings } from "../../src/preview/settings";
 
@@ -197,4 +197,24 @@ test("a page's JavaScript CSV export (blob: URL, text/plain) is matched once its
   expect(await handleDownloadCreated(named)).toBe(true);
   expect(session["downloadPrompt:9"]).toMatchObject({ filename: "orders-chart.csv", refetchable: false, kind: "data" });
   expect(c.tabs.create).toHaveBeenCalledWith({ url: EXT + "app.html#download-prompt?id=9", active: true });
+});
+
+test("a Google Sheets CSV download: the URL has no extension, so the viewer gets the attachment's name", () => {
+  stubChrome();
+  const settings = { ...DEFAULT_PREVIEW_SETTINGS, enabled: true };
+  const sheetUrl = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcdE/export?format=csv&gid=0";
+  const finalUrl = "https://doc-0s-4c-sheets.googleusercontent.com/export/abc123/def456/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcdE?format=csv&id=1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcdE&gid=0";
+  const named = item({ url: sheetUrl, finalUrl, filename: "/Users/me/Downloads/Budget - Sheet1.csv", mime: "text/csv" });
+  expect(navigatedDataToOpen(named, settings, "self")).toBe(`${EXT}app.html?name=${encodeURIComponent("Budget - Sheet1.csv")}&src=${encodeURIComponent(finalUrl)}#file`);
+  // No name from the server, only the type: the extension comes from the MIME type.
+  expect(navigatedDataToOpen(item({ url: sheetUrl, finalUrl, mime: "text/csv" }), settings, "self")).toContain(`?name=${encodeURIComponent(`${"1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcdE"}.csv`)}&src=`);
+  // A URL that already shows the format doesn't need a name.
+  expect(navigatedDataToOpen(item({ url: "https://x.test/a.csv", filename: "/x/a.csv" }), settings, "self")).toBe(`${EXT}app.html?src=${encodeURIComponent("https://x.test/a.csv")}#file`);
+});
+
+test("dataFileName keeps a data name and otherwise adds the MIME type's extension", () => {
+  expect(dataFileName("Sheet1.csv", "text/csv", on)).toBe("Sheet1.csv");
+  expect(dataFileName("export", "text/csv; charset=utf-8", on)).toBe("export.csv");
+  expect(dataFileName("", "application/x-parquet", on)).toBe("download.parquet");
+  expect(dataFileName("report", "application/zip", on)).toBeUndefined();
 });

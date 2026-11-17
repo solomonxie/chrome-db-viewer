@@ -1,0 +1,16 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [
+      { "name": "table_catalog", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "table_schema", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "table_name", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "table_type", "type": "STRING", "mode": "NULLABLE" }
+    ]
+  },
+  "jobReference": { "projectId": "dbui-test", "jobId": "job_search0", "location": "EU" },
+  "totalRows": "0",
+  "totalBytesProcessed": "0",
+  "jobComplete": true,
+  "cacheHit": false
+}

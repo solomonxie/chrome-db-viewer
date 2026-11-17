@@ -8,7 +8,8 @@ import { collect, type Column, type CostEstimate, type ExecuteSummary } from "@c
 import { DataGrid, type GridCursor } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { Splitter, usePaneWidth } from "../components/Splitter";
-import { TypedConfirm } from "../components/ui";
+import { ContextMenu, TypedConfirm, type MenuItem } from "../components/ui";
+import { exportRows, ROW_FORMATS, type RowFormat } from "../lib/exportRows";
 import { cellText, fmtBytes, fmtInt, fmtMs } from "../lib/format";
 import { findDestructive, isWriteStatement } from "../lib/safety";
 import { MOD, useKeys } from "../lib/keys";
@@ -21,6 +22,7 @@ import { TemplateEditor } from "../collections/TemplateEditor";
 import { useNamedQuery, type PreparedStatement } from "../collections/useNamedQuery";
 import { SaveAsNamedQuery } from "../collections/SaveAsNamedQuery";
 import { runStatements, splitStatementsRaw, statementIndexAt, type StatementResult } from "../../collections/split";
+import { asScript, isWholeScript, needsScript, scriptFor, scriptReturnsSeveral } from "../../collections/bqScript";
 import type { NamedQuery } from "../../collections/model";
 
 type StmtResult = StatementResult<Column, Cell[], ExecuteSummary>;
@@ -34,6 +36,8 @@ interface MultiRun {
   running: boolean;
   active: number;
   runId: number;
+  /** One BigQuery script job: its tabs are known only once it's done. */
+  script?: boolean;
 }
 import { ConsolePanel, EnvChangesConfirm, ParamsPanel, RenderedPanel, TestsPanel } from "../collections/NamedQueryPanels";
 
@@ -78,6 +82,7 @@ export function QueryView(props: {
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [estErr, setEstErr] = useState<string | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const isBq = ctx.driver.dialect.name === "bigquery";
   const [multi, setMulti] = useState<MultiRun | null>(null);
   const multiAc = useRef<AbortController | null>(null);
   const [saving, setSaving] = useState(false);
@@ -95,22 +100,31 @@ export function QueryView(props: {
     }
     const ac = new AbortController();
     const t = setTimeout(() => {
-      // Several statements: dry-run each and add them up.
-      const parts = splitStatementsRaw(estimateSql);
+      // Several statements: dry-run each and add them up. A BigQuery script (DECLARE …) is
+      // dry-run whole, since its later statements use the variables.
+      let parts = splitStatementsRaw(estimateSql);
+      if (isBq && needsScript(parts)) parts = [asScript(parts)];
       Promise.all((parts.length ? parts : [estimateSql]).map((sql) => ctx.driver.estimate!({ sql }, ac.signal))).then(
         (all) => {
           const usd = all.some((e) => e.usd !== undefined) ? all.reduce((a, e) => a + (e.usd ?? 0), 0) : undefined;
           setEstimate({ ...all[0]!, bytes: all.reduce((a, e) => a + e.bytes, 0), ...(usd !== undefined ? { usd } : {}) });
           setEstErr(null);
         },
-        (e) => !ac.signal.aborted && setEstErr((e as Error).message),
+        (e) => {
+          if (ac.signal.aborted) return;
+          // A script that BigQuery won't dry-run still runs; just show no estimate.
+          if (parts.length === 1 && isWholeScript(parts)) {
+            setEstimate(null);
+            setEstErr(null);
+          } else setEstErr((e as Error).message);
+        },
       );
     }, 600);
     return () => {
       clearTimeout(t);
       ac.abort();
     };
-  }, [estimateSql, ctx]);
+  }, [estimateSql, ctx, isBq]);
 
   const execute = (sql: string, skipConfirm = false) => {
     if (!sql.trim()) return;
@@ -129,8 +143,14 @@ export function QueryView(props: {
     setSelection(new Set());
     setCursor(null);
     // Several statements: run them in order, one result tab each.
+    // A BigQuery script (DECLARE/SET …) runs as one job, with one result tab per query in it.
     const stmts = splitStatementsRaw(sql);
-    if (stmts.length <= 1) {
+    if (isBq && needsScript(stmts)) {
+      if (!ctx.driver.runScript || !scriptReturnsSeveral(stmts)) {
+        setMulti(null);
+        void run(asScript(stmts));
+      } else void runScriptTabs(asScript(stmts), []);
+    } else if (stmts.length <= 1) {
       setMulti(null);
       void run(sql.trim().replace(/;\s*$/, ""));
     } else void runMulti(stmts.map((s) => ({ sql: s, params: [] })));
@@ -170,6 +190,35 @@ export function QueryView(props: {
     setMulti((m) => (m && m.runId === runId ? { ...m, running: false } : m));
     if (!results.some((r) => r.error)) after?.(results);
   };
+  /**
+   * A BigQuery script as one job; each of its queries (and DML) gets a result tab, labelled by
+   * its own SQL. An error fails the whole script, shown on a single tab.
+   */
+  const runScriptTabs = async (script: string, params: Cell[], after?: (results: StmtResult[]) => void) => {
+    multiAc.current?.abort();
+    abort();
+    const ctrl = new AbortController();
+    multiAc.current = ctrl;
+    const runId = (multi?.runId ?? 0) + 1;
+    setMulti({ statements: [script], results: [], running: true, active: 0, runId, script: true });
+    const started = performance.now();
+    let results: StmtResult[];
+    try {
+      const got = await ctx.driver.runScript!({ sql: script, pageSize: 2000, ...(params.length ? { params } : {}) }, ctrl.signal);
+      const ms = performance.now() - started;
+      ctx.addHistory({ sql: script, ms, rows: got.reduce((a, r) => a + r.rows.length, 0), source: "editor" });
+      results = got.length ? got : [{ sql: script, columns: [], rows: [], summary: { rowCount: 0, ms } }];
+    } catch (e) {
+      const msg = ctrl.signal.aborted ? "Query cancelled" : (e as Error).message || String(e);
+      ctx.addHistory({ sql: script, ms: performance.now() - started, error: msg, source: "editor" });
+      results = [{ sql: script, columns: [], rows: [], error: msg }];
+    }
+    if (multiAc.current !== ctrl) return;
+    multiAc.current = null;
+    setMulti((m) => (m && m.runId === runId ? { statements: results.map((r) => r.sql), results, running: false, active: 0, runId, script: true } : m));
+    if (!results.some((r) => r.error)) after?.(results);
+  };
+
   const stop = () => {
     multiAc.current?.abort();
     abort();
@@ -192,10 +241,25 @@ export function QueryView(props: {
       return;
     }
     let stmts = prepared.statements;
+    // BigQuery scripts keep their DECLAREs/SETs with the statement (positional params can't
+    // be split across jobs either, so params stay with the script only when there are none).
+    const bqScript = isBq && needsScript(stmts.map((x) => x.sql)) && stmts.every((x) => !x.params.length);
     if (mode === "current" && !selText.trim() && el && stmts.length > 1) {
       // The template's statements line up with the rendered ones unless Jinja adds or removes ';'.
       const idx = statementIndexAt(props.sql, el.selectionStart);
-      if (splitStatementsRaw(props.sql).length === stmts.length && idx >= 0) stmts = [stmts[idx]!];
+      if (splitStatementsRaw(props.sql).length === stmts.length && idx >= 0) {
+        stmts = bqScript ? [{ sql: scriptFor(stmts.map((x) => x.sql), idx), params: [] }] : [stmts[idx]!];
+      }
+    }
+    if (bqScript && stmts.length > 1) {
+      const all = stmts.map((x) => x.sql);
+      if (ctx.driver.runScript && scriptReturnsSeveral(all)) {
+        const script = asScript(all);
+        if (!checkSafety(script, () => runNamedScript(script))) return;
+        runNamedScript(script);
+        return;
+      }
+      stmts = [{ sql: asScript(all), params: [] }];
     }
     if (stmts.length > 1) {
       if (!checkSafety(stmts.map((s) => s.sql).join(";\n"), () => runNamedMulti(stmts))) return;
@@ -244,6 +308,13 @@ export function QueryView(props: {
     void runMulti(stmts, (results) => void nq?.afterRun(results.map((r) => ({ columns: r.columns, rows: r.rows }))));
   };
 
+  const runNamedScript = (script: string) => {
+    setSelection(new Set());
+    setCursor(null);
+    setSide("results");
+    void runScriptTabs(script, [], (results) => void nq?.afterRun(results.map((r) => ({ columns: r.columns, rows: r.rows }))));
+  };
+
   const runPrepared = (sql: string, params: Cell[]) => {
     setSelection(new Set());
     setCursor(null);
@@ -267,7 +338,14 @@ export function QueryView(props: {
     const el = ta.current;
     if (!el) return;
     const sel = el.value.slice(el.selectionStart, el.selectionEnd);
-    execute(sel.trim() ? sel : statementAt(el.value, el.selectionStart));
+    if (sel.trim()) return execute(sel);
+    // BigQuery: the statement at the cursor brings the DECLAREs and SETs above it along.
+    if (isBq) {
+      const all = splitStatementsRaw(el.value);
+      const idx = statementIndexAt(el.value, el.selectionStart);
+      if (idx >= 0 && all.length > 1) return execute(scriptFor(all, idx));
+    }
+    execute(statementAt(el.value, el.selectionStart));
   };
 
   const prettify = () => {
@@ -314,12 +392,24 @@ export function QueryView(props: {
         columns: shown?.columns ?? NO_COLUMNS,
         rows: shown?.rows ?? NO_ROWS,
         running: multi.running && !shown,
-        error: shown?.error ? `Statement ${multi.active + 1} failed: ${shown.error}` : null,
+        error: shown?.error ? (multi.script ? `Script failed: ${shown.error}` : `Statement ${multi.active + 1} failed: ${shown.error}`) : null,
         summary: shown?.summary ?? null,
         resetKey: `m${multi.runId}:${multi.active}`,
       }
     : { columns: state.columns, rows: state.rows, running: state.running, error: state.error, summary: state.summary, resetKey: String(state.runId) };
   const busy = state.running || !!multi?.running;
+
+  // Export: the shown result (the selected rows when there are any) as a file.
+  const [exportMenu, setExportMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const exportAs = (format: RowFormat) => {
+    const rows = selection.size > 0 ? [...selection].sort((a, b) => a - b).map((i) => view.rows[i]!).filter(Boolean) : view.rows;
+    const tab = multi && multi.statements.length > 1 ? `${props.title}_result${multi.active + 1}` : props.title;
+    exportRows(tab, view.columns, rows, format).then(
+      (saved) => saved && ctx.toast(`Saved ${fmtInt(rows.length)} row${rows.length === 1 ? "" : "s"} as ${ROW_FORMATS.find((f) => f.format === format)!.label}`),
+      (e) => ctx.toast(`Couldn't save: ${(e as Error).message}`),
+    );
+  };
+  const exportItems = (): MenuItem[] => ROW_FORMATS.map((f) => ({ label: f.label, onClick: () => exportAs(f.format) }));
 
   useEffect(() => {
     if (!props.active) return;
@@ -382,7 +472,7 @@ export function QueryView(props: {
           {busy && (
             <>
               <span className="live" />{" "}
-              <span className="muted">{multi ? `statement ${Math.min(multi.results.length + 1, multi.statements.length)} of ${multi.statements.length}` : `${fmtInt(state.rows.length)} rows so far`}</span>
+              <span className="muted">{multi?.script ? "script running" : multi ? `statement ${Math.min(multi.results.length + 1, multi.statements.length)} of ${multi.statements.length}` : `${fmtInt(state.rows.length)} rows so far`}</span>
             </>
           )}
           {view.summary && (
@@ -417,7 +507,7 @@ export function QueryView(props: {
       {nq && side === "console" && <ConsolePanel nq={nq} />}
       {(!nq || side === "results") && (
         <>
-      {multi && (
+      {multi && !(multi.script && multi.results.length <= 1) && (
         <div className="stmt-tabs" role="tablist" aria-label="Statement results">
           {multi.statements.map((sql, i) => {
             const r = multi.results[i];
@@ -472,9 +562,23 @@ export function QueryView(props: {
           {selection.size > 0 ? `${fmtInt(selection.size)} of ` : ""}
           {fmtInt(view.rows.length)} rows{selection.size > 0 ? " selected" : ""}
         </span>
+        {view.columns.length > 0 && !view.running && (
+          <button
+            className="btn"
+            aria-haspopup="menu"
+            title={selection.size > 0 ? "Save the selected rows as a file" : "Save these rows as a file"}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setExportMenu({ x: r.left, y: r.top, items: exportItems() });
+            }}
+          >
+            Export{selection.size > 0 ? " selected" : ""}
+          </button>
+        )}
         <span className="spacer" />
         {props.logToggle}
       </div>
+      {exportMenu && <ContextMenu x={exportMenu.x} y={Math.max(8, exportMenu.y - 8 - 32 * exportMenu.items.length)} items={exportMenu.items} onClose={() => setExportMenu(null)} />}
       {nq && <EnvChangesConfirm nq={nq} />}
       {confirm && (
         <TypedConfirm

@@ -3,6 +3,8 @@
 // ConnectionConfig.options:
 //   projectId          project that runs (and is billed for) query jobs; defaults to the first listed
 //   location           job location, e.g. "US", "EU" (optional; BigQuery infers it otherwise)
+//   extraProjects      more projects for the tree and search, comma- or space-separated: projects
+//                      where only some datasets are shared with you aren't in projects.list
 //   auth               { method: GoogleAuthMethod, options: {...} }, see src/auth/google
 //   maximumBytesBilled cost guard per job, bytes (default DEFAULT_MAX_BYTES_BILLED)
 //   pricePerTiB        USD per TiB for estimates (default ON_DEMAND_USD_PER_TIB)
@@ -16,6 +18,7 @@ import {
   DriverError,
   type ApplyResult,
   type Capabilities,
+  collect,
   type ConnectionConfig,
   type CostEstimate,
   type Driver,
@@ -23,6 +26,8 @@ import {
   type ObjectNode,
   type ObjectPath,
   type ResultPage,
+  type ScriptResult,
+  type ObjectCatalog,
   type Statement,
   type TableSchema,
 } from "@core/types";
@@ -40,6 +45,10 @@ export const DEFAULT_MAX_BYTES_BILLED = 10 * 1024 ** 3;
 const DEFAULT_PAGE_SIZE = 1000;
 /** How long one jobs.query / getQueryResults call waits before returning jobComplete=false. */
 const POLL_TIMEOUT_MS = 10_000;
+/** Projects the search catalog lists at the same time. */
+const CATALOG_PROJECTS_AT_ONCE = 6;
+/** Datasets listed at once when a project's region view can't be read. */
+const DATASET_LIST_BATCH = 8;
 
 export interface BigQueryDeps {
   fetch?: typeof fetch;
@@ -54,6 +63,18 @@ interface BqErrorBody {
 }
 
 type JobRef = { projectId: string; jobId: string; location?: string };
+
+/** A script statement's child job, from jobs.list?parentJobId=… */
+interface ChildJob {
+  jobReference?: JobRef;
+  configuration?: { query?: { query?: string } };
+  statistics?: {
+    creationTime?: string;
+    startTime?: string;
+    endTime?: string;
+    query?: { statementType?: string; totalBytesProcessed?: string; numDmlAffectedRows?: string };
+  };
+}
 
 interface QueryResponse {
   jobReference?: JobRef;
@@ -107,6 +128,26 @@ export function formatBytes(n: number): string {
 
 export function bytesToUsd(bytes: number, pricePerTiB = ON_DEMAND_USD_PER_TIB): number {
   return (bytes / 1024 ** 4) * pricePerTiB;
+}
+
+/** Maps `items` with at most `limit` calls of `fn` running at once; results keep their order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+/** First line of an error, without BigQuery's long resource names. */
+function shortError(e: unknown): string {
+  const m = String((e as Error)?.message ?? e).split("\n")[0]!;
+  return m.length > 140 ? m.slice(0, 140) + "…" : m;
 }
 
 function tableType(t?: string): ObjectNode["type"] {
@@ -224,10 +265,15 @@ export class BigQueryDriver implements Driver {
   private async listProjects(signal?: AbortSignal): Promise<ObjectNode[]> {
     type P = { projectReference: { projectId: string }; friendlyName?: string };
     const projects = await this.listPaged<P>("/projects", "projects", signal);
-    return projects.map((p) => {
+    const nodes: ObjectNode[] = projects.map((p) => {
       const id = p.projectReference.projectId;
       return { path: [id], name: id, type: "database", hasChildren: true, meta: p.friendlyName && p.friendlyName !== id ? p.friendlyName : undefined };
     });
+    // Projects where only some datasets are shared with you aren't in projects.list; the
+    // connection can name them (options.extraProjects, comma- or space-separated).
+    const listed = new Set(nodes.map((n) => n.name));
+    const extra = String(this.cfg?.options.extraProjects ?? "").split(/[\s,]+/).filter((id) => id && !listed.has(id));
+    return [...extra.map((id): ObjectNode => ({ path: [id], name: id, type: "database", hasChildren: true, meta: "added" })), ...nodes];
   }
 
   async listObjects(parent: ObjectPath, signal?: AbortSignal): Promise<ObjectNode[]> {
@@ -255,6 +301,107 @@ export class BigQueryDriver implements Driver {
       });
     }
     return [];
+  }
+
+  /**
+   * Every dataset, table and view in every visible project (the billing project first, then
+   * options.extraProjects, then the project list), for the schema search to filter locally:
+   * datasets.list gives each project's datasets and their locations, and one
+   * INFORMATION_SCHEMA.TABLES query per location the project uses lists its tables.
+   * CATALOG_PROJECTS_AT_ONCE projects are listed at a time. What couldn't be listed comes back
+   * as notes.
+   */
+  async listAllObjects(signal?: AbortSignal): Promise<ObjectCatalog> {
+    const notes: string[] = [];
+    const listed = await this.listProjects(signal).catch((e) => {
+      if (signal?.aborted) throw e;
+      notes.push(`Couldn't list projects: ${shortError(e)}`);
+      return [] as ObjectNode[];
+    });
+    const projects = [...new Set([this.projectId, ...listed.map((p) => p.name)])].filter(Boolean);
+
+    const regionTables = async (project: string, location: string): Promise<ObjectNode[]> => {
+      const view = bigqueryDialect.quoteIdent(`${project}.region-${location.toLowerCase()}.INFORMATION_SCHEMA.TABLES`);
+      const sql = `SELECT table_catalog, table_schema, table_name, table_type FROM ${view} ORDER BY table_schema, table_name`;
+      const { rows } = await collect(this.execute({ sql, pageSize: 10000, options: { location } }, signal));
+      return rows.map(([cat, ds, name, type]): ObjectNode => ({
+        path: [String(cat), String(ds), String(name)],
+        name: String(name),
+        type: tableType(String(type) === "BASE TABLE" ? "TABLE" : String(type).replace(/ /g, "_")),
+        hasChildren: false,
+        meta: `${cat}.${ds}`,
+      }));
+    };
+
+    const perProject = await mapLimit(
+      projects,
+      CATALOG_PROJECTS_AT_ONCE,
+      async (project): Promise<ObjectNode[]> => {
+        type D = { datasetReference: { datasetId: string }; location?: string };
+        let datasets: D[];
+        try {
+          datasets = await this.listPaged<D>(`/projects/${enc(project)}/datasets`, "datasets", signal);
+        } catch (e) {
+          if (signal?.aborted) throw e;
+          notes.push(`${project}: couldn't list datasets (${shortError(e)})`);
+          return [];
+        }
+        const out: ObjectNode[] = datasets.map((d) => ({ path: [project, d.datasetReference.datasetId], name: d.datasetReference.datasetId, type: "dataset", hasChildren: true, meta: project }));
+        const locOf = (d: D) => d.location ?? this.loc() ?? "US";
+        const locations = [...new Set(datasets.map(locOf))];
+        const tables = await Promise.all(
+          locations.map((loc) =>
+            regionTables(project, loc).catch(async (e) => {
+              if (signal?.aborted) throw e;
+              // The region view needs project-wide rights; with only some datasets shared,
+              // list each dataset's tables instead (tables.list needs only dataset access).
+              const inRegion = datasets.filter((d) => locOf(d) === loc).map((d) => d.datasetReference.datasetId);
+              return this.datasetTables(project, inRegion, notes, signal);
+            }),
+          ),
+        );
+        return [...out, ...tables.flat()];
+      },
+    );
+    signal?.throwIfAborted();
+    return { objects: perProject.flat(), notes };
+  }
+
+  /** tables.list per dataset, a few at a time; datasets that fail are named in `notes`. */
+  private async datasetTables(project: string, datasets: string[], notes: string[], signal?: AbortSignal): Promise<ObjectNode[]> {
+    type T = { tableReference: { tableId: string }; type?: string };
+    const out: ObjectNode[][] = [];
+    const failed: string[] = [];
+    let firstError = "";
+    for (let i = 0; i < datasets.length; i += DATASET_LIST_BATCH) {
+      const batch = datasets.slice(i, i + DATASET_LIST_BATCH);
+      out.push(
+        ...(await Promise.all(
+          batch.map(async (ds) => {
+            try {
+              const tables = await this.listPaged<T>(`/projects/${enc(project)}/datasets/${enc(ds)}/tables`, "tables", signal);
+              return tables.map((t): ObjectNode => ({
+                path: [project, ds, t.tableReference.tableId],
+                name: t.tableReference.tableId,
+                type: tableType(t.type),
+                hasChildren: false,
+                meta: `${project}.${ds}`,
+              }));
+            } catch (e) {
+              if (signal?.aborted) throw e;
+              failed.push(ds);
+              firstError ||= shortError(e);
+              return [];
+            }
+          }),
+        )),
+      );
+    }
+    if (failed.length) {
+      const which = failed.length <= 3 ? failed.join(", ") : `${failed.slice(0, 3).join(", ")} and ${failed.length - 3} more`;
+      notes.push(`${project}: couldn't list tables in ${which} (${firstError})`);
+    }
+    return out.flat();
   }
 
   /** tables.list has no sizes; the __TABLES__ meta-table has them and costs nothing to query. Best effort. */
@@ -348,7 +495,12 @@ export class BigQueryDriver implements Driver {
     return { bytes, usd: bytesToUsd(bytes, price), note: `On-demand estimate at $${price}/TiB; ignores the free tier` };
   }
 
-  async *execute(stmt: Statement, signal?: AbortSignal): AsyncGenerator<ResultPage, ExecuteSummary, void> {
+  execute(stmt: Statement, signal?: AbortSignal): AsyncGenerator<ResultPage, ExecuteSummary, void> {
+    return this.executeJob(stmt, signal);
+  }
+
+  /** execute(), telling `onJob` the job it started (runScript lists that job's children). */
+  private async *executeJob(stmt: Statement, signal?: AbortSignal, onJob?: (job: JobRef | undefined) => void): AsyncGenerator<ResultPage, ExecuteSummary, void> {
     signal?.throwIfAborted();
     const started = Date.now();
     const pageSize = stmt.pageSize ?? DEFAULT_PAGE_SIZE;
@@ -364,6 +516,7 @@ export class BigQueryDriver implements Driver {
       (r) => this.cancelJob(r.jobReference),
     );
     const job = first.jobReference;
+    onJob?.(job);
     const onAbort = () => void this.cancelJob(job);
     signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -412,6 +565,66 @@ export class BigQueryDriver implements Driver {
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
+  }
+
+  /**
+   * Runs a script as one job, then reads each statement's own child job in order (jobs.list with
+   * parentJobId) and fetches the rows of those that return any. DECLARE/SET and other statements
+   * without rows are left out, so the results are the script's queries and DML.
+   */
+  async runScript(stmt: Statement, signal?: AbortSignal): Promise<ScriptResult[]> {
+    const pageSize = stmt.pageSize ?? DEFAULT_PAGE_SIZE;
+    let parent: JobRef | undefined;
+    const gen = this.executeJob(stmt, signal, (j) => (parent = j));
+    let last = await gen.next();
+    while (!last.done) last = await gen.next();
+    if (!parent) return [];
+
+    const children: ChildJob[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page = await this.request<{ jobs?: ChildJob[]; nextPageToken?: string }>("GET", `/projects/${enc(parent.projectId)}/jobs`, {
+        query: { parentJobId: parent.jobId, location: parent.location, projection: "full", allUsers: "false", pageToken },
+        signal,
+      });
+      children.push(...(page.jobs ?? []));
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+    // jobs.list is newest first; the script ran its statements oldest first.
+    children.sort((a, b) => Number(a.statistics?.creationTime ?? 0) - Number(b.statistics?.creationTime ?? 0));
+
+    const out: ScriptResult[] = [];
+    for (const child of children) {
+      const sql = child.configuration?.query?.query ?? "";
+      const type = child.statistics?.query?.statementType ?? "";
+      const ms = Number(child.statistics?.endTime ?? 0) - Number(child.statistics?.startTime ?? 0);
+      const bytes = child.statistics?.query?.totalBytesProcessed;
+      const dml = child.statistics?.query?.numDmlAffectedRows;
+      if (type === "SELECT" && child.jobReference) {
+        const ref = child.jobReference;
+        let res = await this.request<QueryResponse>("GET", `/projects/${enc(ref.projectId)}/queries/${enc(ref.jobId)}`, {
+          query: { location: ref.location, maxResults: String(pageSize), "formatOptions.useInt64Timestamp": "true" },
+          signal,
+        });
+        const columns = toColumns(res.schema);
+        const rows = convertRows(res.schema, res.rows);
+        while (res.pageToken && rows.length < pageSize) {
+          res = await this.request<QueryResponse>("GET", `/projects/${enc(ref.projectId)}/queries/${enc(ref.jobId)}`, {
+            query: { location: ref.location, pageToken: res.pageToken, maxResults: String(pageSize), "formatOptions.useInt64Timestamp": "true" },
+            signal,
+          });
+          rows.push(...convertRows(res.schema, res.rows));
+        }
+        const summary: ExecuteSummary = { rowCount: rows.length, ms };
+        if (bytes !== undefined) summary.bytesProcessed = Number(bytes);
+        out.push({ sql, columns, rows, summary });
+      } else if (dml !== undefined) {
+        const summary: ExecuteSummary = { rowCount: 0, ms, affectedRows: Number(dml) };
+        if (bytes !== undefined) summary.bytesProcessed = Number(bytes);
+        out.push({ sql, columns: [], rows: [], summary });
+      }
+    }
+    return out;
   }
 
   private async cancelJob(job?: JobRef): Promise<void> {

@@ -1,0 +1,24 @@
+{
+  "tree": {
+    "[]": [
+      { "path": ["acme-adhoc"], "name": "acme-adhoc", "type": "database", "hasChildren": true },
+      { "path": ["acme-warehouse"], "name": "acme-warehouse", "type": "database", "hasChildren": true }
+    ],
+    "[\"acme-adhoc\"]": [
+      { "path": ["acme-adhoc", "alex_scratch"], "name": "alex_scratch", "type": "dataset", "hasChildren": true, "meta": "US" }
+    ],
+    "[\"acme-warehouse\"]": [
+      { "path": ["acme-warehouse", "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0"], "name": "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0", "type": "dataset", "hasChildren": true, "meta": "US" }
+    ]
+  },
+  "catalog": [
+    { "path": ["acme-adhoc", "alex_scratch"], "name": "alex_scratch", "type": "dataset", "hasChildren": true, "meta": "acme-adhoc" },
+    { "path": ["acme-warehouse", "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0"], "name": "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0", "type": "dataset", "hasChildren": true, "meta": "acme-warehouse" },
+    { "path": ["acme-warehouse", "web_v2__attribution", "mart__fact__annotated_visits"], "name": "mart__fact__annotated_visits", "type": "table", "hasChildren": false, "meta": "acme-warehouse.web_v2__attribution" },
+    { "path": ["acme-warehouse", "web_v2__attribution", "annotated_visits_v"], "name": "annotated_visits_v", "type": "view", "hasChildren": false, "meta": "acme-warehouse.web_v2__attribution" },
+    { "path": ["acme-warehouse", "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0", "agg_daily__channel_metrics"], "name": "agg_daily__channel_metrics", "type": "table", "hasChildren": false, "meta": "acme-warehouse.3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0" }
+  ],
+  "catalogAfterRefresh": [
+    { "path": ["acme-warehouse", "web_v2__attribution", "mart__fact__annotated_visits_new"], "name": "mart__fact__annotated_visits_new", "type": "table", "hasChildren": false, "meta": "acme-warehouse.web_v2__attribution" }
+  ]
+}

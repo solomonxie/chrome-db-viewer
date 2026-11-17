@@ -1,0 +1,86 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [
+      {
+        "name": "table_catalog",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_schema",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_name",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_type",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      }
+    ]
+  },
+  "jobReference": {
+    "projectId": "dbui-test",
+    "jobId": "job_search2",
+    "location": "US"
+  },
+  "totalRows": "3",
+  "rows": [
+    {
+      "f": [
+        {
+          "v": "other-proj"
+        },
+        {
+          "v": "web_v2__attribution"
+        },
+        {
+          "v": "mart__fact__annotated_visits"
+        },
+        {
+          "v": "BASE TABLE"
+        }
+      ]
+    },
+    {
+      "f": [
+        {
+          "v": "other-proj"
+        },
+        {
+          "v": "web_v2__attribution"
+        },
+        {
+          "v": "mart__fact__annotated_visits_v"
+        },
+        {
+          "v": "VIEW"
+        }
+      ]
+    },
+    {
+      "f": [
+        {
+          "v": "other-proj"
+        },
+        {
+          "v": "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0"
+        },
+        {
+          "v": "agg_daily__channel_metrics"
+        },
+        {
+          "v": "BASE TABLE"
+        }
+      ]
+    }
+  ],
+  "totalBytesProcessed": "0",
+  "jobComplete": true,
+  "cacheHit": false
+}

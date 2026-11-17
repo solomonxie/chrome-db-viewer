@@ -265,6 +265,18 @@ test("a query step whose named query has several statements runs the earlier one
   expect(seen).toEqual([2]);
 });
 
+test("a BigQuery step whose query DECLAREs variables runs as one script job", async () => {
+  const fx = JSON.parse(readFixture("bq_script.json"));
+  const library = buildLibrary(fx.collection, fx.folders, fx.queries);
+  const deps = makeDeps();
+  clearCache(fx.chain.id);
+  const s = await runChainToEnd(fx.chain, {}, { ...deps, library });
+  expect(s.status).toBe("done");
+  expect(deps.log.executed).toHaveLength(1);
+  expect(deps.log.executed[0]!.sql).toBe(fx.queries[0].sql.split(";\n").join(";\n"));
+  expect(s.steps.top).toMatchObject({ status: "done", rowCount: 2 });
+});
+
 test("step results are saved and still there after a reload, until Clear result", async () => {
   const { setResultStore, loadSavedResults, cachedResult } = await import("../../src/chains/runner");
   const { chainCache } = await import("../../src/chains/cache");

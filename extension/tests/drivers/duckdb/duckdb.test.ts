@@ -126,3 +126,14 @@ test("a file that isn't a DuckDB database fails with a clear message", async () 
   const d = createDriver({ engine: testEngine, readFile: async () => fixtureFile("orders.csv") });
   await expect(d.connect(cfg({ fileHandleId: "h1" }))).rejects.toMatchObject({ code: "open_failed", message: expect.stringMatching(/^Could not open orders\.csv as a DuckDB database/) });
 });
+
+test("listAllObjects: tables and views in every schema", async () => {
+  const d = await openShop();
+  expect((await d.listAllObjects!()).objects.map((n) => [n.type, n.path.join("."), n.meta])).toEqual([
+    ["table", "main.customers", "main"],
+    ["table", "main.orders", "main"],
+    ["view", "sales.big_orders", "sales"],
+    ["table", "sales.targets", "sales"],
+  ]);
+  await d.disconnect();
+});

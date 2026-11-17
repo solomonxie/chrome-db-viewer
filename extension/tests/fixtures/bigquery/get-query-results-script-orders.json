@@ -1,0 +1,8 @@
+{
+  "kind": "bigquery#getQueryResultsResponse",
+  "jobReference": { "projectId": "dbui-test", "jobId": "script_job_1_2", "location": "US" },
+  "schema": { "fields": [{ "name": "id", "type": "INTEGER", "mode": "REQUIRED" }, { "name": "status", "type": "STRING", "mode": "NULLABLE" }] },
+  "rows": [{ "f": [{ "v": "1" }, { "v": "paid" }] }, { "f": [{ "v": "2" }, { "v": "open" }] }],
+  "totalRows": "2",
+  "jobComplete": true
+}

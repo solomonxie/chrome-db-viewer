@@ -8,6 +8,7 @@ import * as db from "../store/db";
 import { copySecret, forgetSecret, readSecret, type SecretMode } from "../store/secrets";
 import { moveToTrash } from "../store/trash";
 import { forgetSchemaCache } from "../store/schemaCache";
+import { forgetSchemaCatalog } from "../store/schemaCatalog";
 import { ENGINE } from "./format";
 import { openConnectionTab } from "./route";
 import { loadShowDemo } from "./demoSetting";
@@ -82,6 +83,7 @@ export async function deleteConnection(id: string): Promise<void> {
   // The copy in the Trash keeps the values; the live refs go, as a deleted connection's would.
   for (const ref of connectionSecretRefs(c)) await forgetSecret(ref);
   await forgetSchemaCache(id);
+  await forgetSchemaCatalog(id);
 }
 
 /**

@@ -52,7 +52,7 @@ export function App() {
     const fixed: Partial<Record<Route["name"], string>> = { settings: "Settings", workflows: "Workflows", "connection-editor": "New connection", "download-prompt": "Open in viewer?" };
     const title = fixed[route.name];
     if (title) document.title = title;
-    else if (route.name === "file" && route.src) document.title = fileTitle(route.src);
+    else if (route.name === "file" && route.src) document.title = route.fileName ?? fileTitle(route.src);
     else document.title = "Loading…";
   }, [route]);
 
@@ -65,7 +65,7 @@ export function App() {
       page = <ConnectionTab key={route.connectionId} connectionId={route.connectionId} />;
       break;
     case "file":
-      page = <FileSheet key={(route.src ?? "") + (route.fileHandleId ?? "")} src={route.src} fileHandleId={route.fileHandleId} />;
+      page = <FileSheet key={(route.src ?? "") + (route.fileHandleId ?? "")} src={route.src} fileHandleId={route.fileHandleId} fileName={route.fileName} />;
       break;
     case "settings":
       page = <Settings section={route.section} />;

@@ -26,6 +26,7 @@ import {
   type ExecuteSummary,
   type Index,
   type ObjectNode,
+  type ObjectCatalog,
   type ObjectPath,
   type ResultPage,
   type Statement,
@@ -224,6 +225,13 @@ export class ClickHouseDriver implements Driver {
     }
     return out;
   }
+
+  /** Every table, view and dictionary table in system.tables, for the schema search. */
+  async listAllObjects(signal?: AbortSignal): Promise<ObjectCatalog> {
+    const rows = await this.queryRows("SELECT database, name, engine FROM system.tables WHERE NOT is_temporary ORDER BY database, name", {}, signal);
+    return { objects: rows.map(([db, name, engine]) => ({ path: [String(db), String(name)], name: String(name), type: objectType(String(engine)), hasChildren: false, meta: String(db) })) };
+  }
+
 
   async describe(path: ObjectPath, signal?: AbortSignal): Promise<TableSchema> {
     const [db, table] = path.length >= 2 ? [path[0]!, path[path.length - 1]!] : [this.s?.database ?? "default", path[0]!];

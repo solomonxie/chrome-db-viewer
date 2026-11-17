@@ -8,7 +8,8 @@ export type Route =
    *  opens these when a form needs a file chooser, which would close the popup. */
   | { name: "connection-editor"; connectionId?: string; driver?: string }
   | { name: "connection"; connectionId: string }
-  | { name: "file"; src?: string; fileHandleId?: string }
+  /** `fileName`: the name when the URL doesn't show it, e.g. a Google Sheets CSV export link. */
+  | { name: "file"; src?: string; fileHandleId?: string; fileName?: string }
   | { name: "settings"; section?: string }
   | { name: "download-prompt"; downloadId: number }
   /** Every workflow, at #workflows: opened from the toolbar popup. */
@@ -27,7 +28,7 @@ export function parseRoute(hash: string, search = ""): Route {
   if (h.startsWith("c_") && h.length > 2) return { name: "connection", connectionId: decodeURIComponent(h.slice(2)) };
   if (h === "file" || h.startsWith("file/")) {
     const id = h.slice(5);
-    return { name: "file", src, fileHandleId: id ? decodeURIComponent(id) : undefined };
+    return { name: "file", src, fileHandleId: id ? decodeURIComponent(id) : undefined, ...(sp?.name ? { fileName: sp.name } : {}) };
   }
   if (h === "settings" || h.startsWith("settings/")) {
     const section = h.slice(9);
@@ -41,7 +42,7 @@ export function parseRoute(hash: string, search = ""): Route {
     const id = Number(new URLSearchParams(h.split("?")[1] ?? "").get("id"));
     if (Number.isInteger(id) && id >= 0) return { name: "download-prompt", downloadId: id };
   }
-  if (h === "" && src) return { name: "file", src };
+  if (h === "" && src) return { name: "file", src, ...(sp?.name ? { fileName: sp.name } : {}) };
   // There is no Home page; the toolbar popup lists connections. Anything else lands on Settings.
   return { name: "settings" };
 }
@@ -68,7 +69,7 @@ export function routeHash(route: Route): string {
 
 /** Full URL (path + search + hash) for a route; file routes with a src keep it in ?src=. */
 export function routeUrl(route: Route): string {
-  if (route.name === "file" && route.src) return buildSrcUrl(location.pathname, route.src, routeHash(route));
+  if (route.name === "file" && route.src) return buildSrcUrl(location.pathname, route.src, routeHash(route), route.fileName);
   return location.pathname + routeHash(route);
 }
 
@@ -80,7 +81,7 @@ export function openInNewTab(route: Route): void {
   const c = typeof chrome !== "undefined" ? chrome : undefined;
   if (c?.tabs?.create && c.runtime?.getURL) {
     const page = c.runtime.getURL("app.html");
-    const url = route.name === "file" && route.src ? buildSrcUrl(page, route.src, routeHash(route)) : page + routeHash(route);
+    const url = route.name === "file" && route.src ? buildSrcUrl(page, route.src, routeHash(route), route.fileName) : page + routeHash(route);
     void c.tabs.create({ url });
     return;
   }

@@ -1,0 +1,33 @@
+{
+  "kind": "bigquery#datasetList",
+  "etag": "def==",
+  "datasets": [
+    {
+      "kind": "bigquery#dataset",
+      "id": "other-proj:web_v2__attribution",
+      "datasetReference": {
+        "datasetId": "web_v2__attribution",
+        "projectId": "other-proj"
+      },
+      "location": "US"
+    },
+    {
+      "kind": "bigquery#dataset",
+      "id": "other-proj:eu_marts",
+      "datasetReference": {
+        "datasetId": "eu_marts",
+        "projectId": "other-proj"
+      },
+      "location": "EU"
+    },
+    {
+      "kind": "bigquery#dataset",
+      "id": "other-proj:3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0",
+      "datasetReference": {
+        "datasetId": "3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0",
+        "projectId": "other-proj"
+      },
+      "location": "US"
+    }
+  ]
+}

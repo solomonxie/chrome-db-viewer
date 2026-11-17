@@ -190,3 +190,124 @@ test("microsToIso keeps microseconds, including before 1970", () => {
   expect(microsToIso("0")).toBe("1970-01-01T00:00:00.000000Z");
   expect(microsToIso("-1")).toBe("1969-12-31T23:59:59.999999Z");
 });
+
+test("runScript runs the script as one job and returns each query's own result, in order", async () => {
+  const { driver, calls } = await connected((c) => {
+    if (c.method === "POST") return "jobs-query-script.json";
+    if (c.url.pathname.endsWith("/jobs")) return "jobs-list-script-children.json";
+    return c.url.pathname.endsWith("script_job_1_2") ? "get-query-results-script-orders.json" : "get-query-results-script-count.json";
+  });
+  const sql = "DECLARE end_date DATE DEFAULT CURRENT_DATE();\nSELECT id, status FROM shop.orders WHERE day <= end_date;\nSELECT COUNT(*) AS n FROM shop.orders WHERE day = end_date";
+  const results = await driver.runScript!({ sql });
+  expect(calls[0]!.body!.query).toBe(sql);
+  const list = calls.find((c) => c.url.pathname.endsWith("/jobs"))!;
+  expect(list.url.searchParams.get("parentJobId")).toBe("script_job_1");
+  // The DECLARE returns nothing and is left out; the queries come back oldest first.
+  expect(results.map((r) => r.sql)).toEqual(["SELECT id, status FROM shop.orders WHERE day <= end_date", "SELECT COUNT(*) AS n FROM shop.orders WHERE day = end_date"]);
+  expect(results[0]!.columns.map((c) => c.name)).toEqual(["id", "status"]);
+  expect(results[0]!.rows).toEqual([["1", "paid"], ["2", "open"]]);
+  expect(results[0]!.summary).toMatchObject({ rowCount: 2, bytesProcessed: 2048, ms: 90 });
+  expect(results[1]!.rows).toEqual([["4"]]);
+});
+
+/**
+ * Catalog routes: projects-list-catalog.json has dbui-test (billing, datasets in us-central1),
+ * other-proj (US and EU datasets, the tables in US) and locked-proj (datasets.list denied).
+ */
+function catalogRoutes(c: Call): string | { file: string; status: number } {
+  const p = c.url.pathname;
+  if (c.method === "GET" && p.endsWith("/projects")) return "projects-list-catalog.json";
+  if (p.endsWith("/locked-proj/datasets")) return { file: "error-access-denied.json", status: 403 };
+  if (p.endsWith("/other-proj/datasets")) return "datasets-list-catalog-us-eu.json";
+  if (p.endsWith("/dbui-test/datasets")) return "datasets-list-catalog-billing.json";
+  return String(c.body?.query).includes("`other-proj.region-us.") ? "catalog-tables-other-proj-us.json" : "catalog-tables-empty.json";
+}
+
+test("listAllObjects: every project's datasets, and its tables from each region its datasets use", async () => {
+  const { driver, calls } = await connected(catalogRoutes);
+  const { objects, notes } = await driver.listAllObjects!();
+  expect(objects.map((n) => [n.type, n.path.join(".")])).toEqual([
+    ["dataset", "dbui-test.shop"],
+    ["dataset", "other-proj.web_v2__attribution"],
+    ["dataset", "other-proj.eu_marts"],
+    ["dataset", "other-proj.3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0"],
+    ["table", "other-proj.web_v2__attribution.mart__fact__annotated_visits"],
+    ["view", "other-proj.web_v2__attribution.mart__fact__annotated_visits_v"],
+    ["table", "other-proj.3f2b8c1d_9e4a_4b7f_a1c2_d5e6f7a8b9c0.agg_daily__channel_metrics"],
+  ]);
+  expect(objects[4]!.meta).toBe("other-proj.web_v2__attribution");
+  // One INFORMATION_SCHEMA query per (project, region), run in that region, billed to the billing project.
+  const queries = calls.filter((c) => c.method === "POST");
+  expect(queries.map((c) => [String(c.body!.query).match(/FROM `([^`]+)`/)![1], c.body!.location, c.url.pathname])).toEqual([
+    ["dbui-test.region-us-central1.INFORMATION_SCHEMA.TABLES", "us-central1", "/bigquery/v2/projects/dbui-test/queries"],
+    ["other-proj.region-us.INFORMATION_SCHEMA.TABLES", "US", "/bigquery/v2/projects/dbui-test/queries"],
+    ["other-proj.region-eu.INFORMATION_SCHEMA.TABLES", "EU", "/bigquery/v2/projects/dbui-test/queries"],
+  ]);
+  // The project it can't read is named, not silently dropped.
+  expect(notes).toEqual(["locked-proj: couldn't list datasets (Access Denied: Table locked-proj:region-us.INFORMATION_SCHEMA.TABLES: User does not have permission to query table locked-proj:region-us.INF…)"]);
+});
+
+test("extraProjects: projects named on the connection show in the tree and get listed", async () => {
+  const { fetch, calls } = stubFetch((c) => {
+    if (c.url.pathname.endsWith("/projects")) return "projects-list.json";
+    if (c.url.pathname.endsWith("/datasets")) return "datasets-list-catalog-us-eu.json";
+    return "catalog-tables-empty.json";
+  });
+  const driver = createDriver({ fetch, tokenProvider });
+  await driver.connect({ ...cfg, options: { ...cfg.options, extraProjects: "shared-proj, other-proj" } });
+  expect((await driver.listObjects([])).map((n) => [n.name, n.meta])).toEqual([
+    ["shared-proj", "added"],
+    ["dbui-test", "dbui test"],
+    ["other-proj", undefined],
+  ]);
+  await driver.listAllObjects!();
+  expect(calls.filter((c) => c.url.pathname.endsWith("/datasets")).map((c) => c.url.pathname.split("/")[4])).toEqual(["dbui-test", "shared-proj", "other-proj"]);
+});
+
+test("listAllObjects: with the region view denied (only datasets shared), each dataset's tables are listed instead", async () => {
+  const { driver, calls } = await connected((c) => {
+    const p = c.url.pathname;
+    if (p.endsWith("/projects")) return "projects-list.json";
+    if (p.endsWith("/datasets")) return "datasets-list.json";
+    if (p.endsWith("/datasets/shop/tables")) return "tables-list.json";
+    return { file: "error-access-denied.json", status: 403 };
+  });
+  const { objects, notes } = await driver.listAllObjects!();
+  expect(objects.filter((n) => n.type !== "dataset").map((n) => [n.type, n.path.join("."), n.meta])).toEqual([
+    ["table", "dbui-test.shop.orders", "dbui-test.shop"],
+    ["view", "dbui-test.shop.orders_v", "dbui-test.shop"],
+    ["table", "other-proj.shop.orders", "other-proj.shop"],
+    ["view", "other-proj.shop.orders_v", "other-proj.shop"],
+  ]);
+  expect(notes).toEqual([]);
+  expect(calls.some((c) => c.url.pathname === "/bigquery/v2/projects/other-proj/datasets/shop/tables")).toBe(true);
+});
+
+test("listAllObjects: lists every project, however many (the 32nd here holds the client tables), a few at a time", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const { fetch } = stubFetch((c) => {
+    const p = c.url.pathname;
+    if (p.endsWith("/projects")) return "projects-list-many.json";
+    if (p.endsWith("/datasets")) return "datasets-list-catalog-billing.json";
+    return String(c.body?.query).includes("`events-prod.") ? "catalog-tables-events-us.json" : "catalog-tables-empty.json";
+  });
+  const counting = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 1));
+    try {
+      return await fetch(input, init);
+    } finally {
+      inFlight--;
+    }
+  });
+  const driver = createDriver({ fetch: counting, tokenProvider });
+  await driver.connect(cfg);
+  const { objects } = await driver.listAllObjects!();
+  expect(objects.filter((n) => n.name === "agg_daily__channel_metrics").map((n) => n.meta)).toEqual([
+    "events-prod.production__11111111_2222_4333_8444_555555555555",
+    "events-prod.production__aaaaaaaa_bbbb_4ccc_8ddd_eeeeeeeeeeee",
+  ]);
+  expect(peak).toBeLessThanOrEqual(6);
+});

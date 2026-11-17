@@ -58,3 +58,11 @@ test("routeHash round-trips", () => {
     expect(back).toMatchObject(r);
   }
 });
+
+test("a file route can carry the file's name when the URL doesn't show it", () => {
+  const src = "https://doc-0s.googleusercontent.com/export/a/b/1AbCdE?format=csv&gid=0";
+  const r = parseRoute("#file", `?name=${encodeURIComponent("Budget - Sheet1.csv")}&src=${encodeURIComponent(src)}`);
+  expect(r).toEqual({ name: "file", src, fileHandleId: undefined, fileName: "Budget - Sheet1.csv" });
+  // A verbatim redirect src after name= keeps its own "&" params.
+  expect(parseRoute("", `?name=a.csv&src=${src}`)).toEqual({ name: "file", src, fileName: "a.csv" });
+});

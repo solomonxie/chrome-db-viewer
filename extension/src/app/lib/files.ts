@@ -56,11 +56,13 @@ export async function rememberFile(handle: FileSystemFileHandle): Promise<db.Rec
   return row;
 }
 
-export async function rememberUrl(src: string): Promise<void> {
+/** `fileName`: the name when the URL doesn't show it; kept so reopening reads the same format. */
+export async function rememberUrl(src: string, fileName?: string): Promise<void> {
   const all = await db.getAll("recentFiles").catch(() => [] as db.RecentFile[]);
   const existing = all.find((r) => r.src === src);
-  const name = decodeURIComponent(src.split(/[?#]/)[0]!.split("/").pop() || src);
-  await db.put("recentFiles", existing ? { ...existing, openedAt: Date.now() } : { id: db.uid("f_"), name, src, openedAt: Date.now() });
+  const name = fileName || decodeURIComponent(src.split(/[?#]/)[0]!.split("/").pop() || src);
+  const named = fileName ? { fileName } : {};
+  await db.put("recentFiles", existing ? { ...existing, ...named, openedAt: Date.now() } : { id: db.uid("f_"), name, src, ...named, openedAt: Date.now() });
 }
 
 export async function recentFiles(limit = 12): Promise<db.RecentFile[]> {

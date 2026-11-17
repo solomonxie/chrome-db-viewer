@@ -1,0 +1,70 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [
+      {
+        "name": "table_catalog",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_schema",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_name",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
+        "name": "table_type",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      }
+    ]
+  },
+  "jobReference": {
+    "projectId": "dbui-test",
+    "jobId": "job_snow",
+    "location": "US"
+  },
+  "totalRows": "2",
+  "rows": [
+    {
+      "f": [
+        {
+          "v": "events-prod"
+        },
+        {
+          "v": "production__11111111_2222_4333_8444_555555555555"
+        },
+        {
+          "v": "agg_daily__channel_metrics"
+        },
+        {
+          "v": "BASE TABLE"
+        }
+      ]
+    },
+    {
+      "f": [
+        {
+          "v": "events-prod"
+        },
+        {
+          "v": "production__aaaaaaaa_bbbb_4ccc_8ddd_eeeeeeeeeeee"
+        },
+        {
+          "v": "agg_daily__channel_metrics"
+        },
+        {
+          "v": "BASE TABLE"
+        }
+      ]
+    }
+  ],
+  "totalBytesProcessed": "0",
+  "jobComplete": true,
+  "cacheHit": false
+}

@@ -1,0 +1,43 @@
+{
+  "collection": {
+    "id": "col1",
+    "name": "Ad performance",
+    "defaultConnectionId": "bq",
+    "vars": [],
+    "environments": [],
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  "folders": [],
+  "queries": [
+    {
+      "id": "q_script",
+      "collectionId": "col1",
+      "name": "declared_window",
+      "vars": [],
+      "updatedAt": 0,
+      "sql": "DECLARE end_date DATE DEFAULT CURRENT_DATE();\nDECLARE start_date DATE DEFAULT DATE_SUB(end_date, INTERVAL 7 DAY);\nSELECT ad_hash, revenue FROM ads_daily WHERE localdate BETWEEN start_date AND end_date ORDER BY revenue DESC LIMIT 2"
+    }
+  ],
+  "chain": {
+    "id": "ch_script",
+    "collectionId": "col1",
+    "name": "BigQuery script step",
+    "vars": [],
+    "updatedAt": 0,
+    "steps": [
+      {
+        "id": "s1",
+        "name": "top",
+        "kind": "query",
+        "queryId": "q_script"
+      },
+      {
+        "id": "s2",
+        "name": "check",
+        "kind": "assert",
+        "condition": "count(\"top\") == 2"
+      }
+    ]
+  }
+}

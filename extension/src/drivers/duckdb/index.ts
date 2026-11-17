@@ -31,6 +31,7 @@ import {
   type ExecuteSummary,
   type Index,
   type ObjectNode,
+  type ObjectCatalog,
   type ObjectPath,
   type ResultPage,
   type Statement,
@@ -435,6 +436,21 @@ export class DuckDriver implements Driver {
       return node;
     });
   }
+
+  /** Every schema's tables and views, for the schema search. */
+  async listAllObjects(signal?: AbortSignal): Promise<ObjectCatalog> {
+    aborted(signal);
+    if (this.id === "file") return { objects: [] };
+    const objs = await this.rows(
+      `SELECT schema_name AS s, table_name AS name, 'table' AS kind FROM duckdb_tables() WHERE database_name = ?
+       UNION ALL
+       SELECT schema_name, view_name, 'view' FROM duckdb_views() WHERE database_name = ? AND NOT internal AND schema_name NOT IN ('information_schema', 'pg_catalog')
+       ORDER BY s, name`,
+      [this.catalog, this.catalog],
+    );
+    return { objects: objs.map((r) => ({ path: [str(r.s), str(r.name)], name: str(r.name), type: r.kind === "view" ? "view" : "table", hasChildren: false, meta: str(r.s) })) };
+  }
+
 
   private fileMeta(): string {
     const f = this.fileInfo;

@@ -23,6 +23,7 @@ import {
   type ExecuteSummary,
   type Index,
   type ObjectNode,
+  type ObjectCatalog,
   type ObjectPath,
   type ResultPage,
   type Statement,
@@ -125,6 +126,17 @@ export class SqliteDriver implements Driver {
   }
 
   /** Accepts ["tables", "orders"] (tree path) or ["orders"]. */
+  /** Every table and view in sqlite_schema, for the schema search. */
+  async listAllObjects(): Promise<ObjectCatalog> {
+    const rows = await this.all("SELECT type, name FROM sqlite_schema WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name COLLATE NOCASE");
+    const objects = rows.map((r): ObjectNode => {
+      const g = GROUPS.find((x) => x.type === r.type)!;
+      return { path: [g.label, String(r.name)], name: String(r.name), type: g.type, hasChildren: false };
+    });
+    return { objects };
+  }
+
+
   private tableName(path: ObjectPath): string {
     const name = path[path.length - 1];
     if (!name) throw new DriverError("Empty object path", "bad_path");

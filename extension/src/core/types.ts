@@ -96,6 +96,20 @@ export interface ExecuteSummary {
   message?: string;
 }
 
+/** One statement of a script run: its text and what it returned. */
+export interface ScriptResult {
+  sql: string;
+  columns: Column[];
+  rows: Cell[][];
+  summary: ExecuteSummary;
+}
+
+/** Driver.listAllObjects: the objects, and notes on what couldn't be listed (shown under hits). */
+export interface ObjectCatalog {
+  objects: ObjectNode[];
+  notes?: string[];
+}
+
 export interface Statement {
   sql: string;
   params?: Cell[];
@@ -142,11 +156,23 @@ export interface Driver {
   listObjects(parent: ObjectPath, signal?: AbortSignal): Promise<ObjectNode[]>;
   describe(path: ObjectPath, signal?: AbortSignal): Promise<TableSchema>;
   /**
+   * Every table and view (and, for BigQuery, dataset) in the database, including branches the
+   * sidebar hasn't loaded, for the schema search to filter locally. Paths match listObjects'
+   * paths, so a hit opens like a tree node; `meta` says where it lives. Drivers without a
+   * catalog to list leave it out.
+   */
+  listAllObjects?(signal?: AbortSignal): Promise<ObjectCatalog>;
+  /**
    * Streams result pages. The generator's return value is the summary.
    * Aborting the signal must stop the work on the server, not just the stream.
    */
   execute(stmt: Statement, signal?: AbortSignal): AsyncGenerator<ResultPage, ExecuteSummary, void>;
   estimate?(stmt: Statement, signal?: AbortSignal): Promise<CostEstimate>;
+  /**
+   * Runs several statements as one script (BigQuery: DECLARE/SET variables live only inside one
+   * job) and returns each statement's result, in order. Drivers without scripts leave it out.
+   */
+  runScript?(stmt: Statement, signal?: AbortSignal): Promise<ScriptResult[]>;
   apply(changes: ChangeSet, signal?: AbortSignal): Promise<ApplyResult>;
   /** SQL dialect used by the editor and the ChangeSet → SQL preview. */
   readonly dialect: SqlDialect;

@@ -1,0 +1,20 @@
+{
+  "kind": "bigquery#jobList",
+  "jobs": [
+    {
+      "jobReference": { "projectId": "dbui-test", "jobId": "script_job_1_3", "location": "US" },
+      "configuration": { "query": { "query": "SELECT COUNT(*) AS n FROM shop.orders WHERE day = end_date" } },
+      "statistics": { "creationTime": "1762900000300", "startTime": "1762900000300", "endTime": "1762900000500", "query": { "statementType": "SELECT", "totalBytesProcessed": "1024" } }
+    },
+    {
+      "jobReference": { "projectId": "dbui-test", "jobId": "script_job_1_2", "location": "US" },
+      "configuration": { "query": { "query": "SELECT id, status FROM shop.orders WHERE day <= end_date" } },
+      "statistics": { "creationTime": "1762900000200", "startTime": "1762900000200", "endTime": "1762900000290", "query": { "statementType": "SELECT", "totalBytesProcessed": "2048" } }
+    },
+    {
+      "jobReference": { "projectId": "dbui-test", "jobId": "script_job_1_1", "location": "US" },
+      "configuration": { "query": { "query": "DECLARE end_date DATE DEFAULT CURRENT_DATE()" } },
+      "statistics": { "creationTime": "1762900000100", "startTime": "1762900000100", "endTime": "1762900000110", "query": { "statementType": "SCRIPT" } }
+    }
+  ]
+}

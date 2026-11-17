@@ -1,0 +1,286 @@
+{
+  "kind": "bigquery#projectList",
+  "etag": "many==",
+  "projects": [
+    {
+      "kind": "bigquery#project",
+      "id": "proj-01",
+      "numericId": "100001",
+      "projectReference": {
+        "projectId": "proj-01"
+      },
+      "friendlyName": "proj-01"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-02",
+      "numericId": "100002",
+      "projectReference": {
+        "projectId": "proj-02"
+      },
+      "friendlyName": "proj-02"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-03",
+      "numericId": "100003",
+      "projectReference": {
+        "projectId": "proj-03"
+      },
+      "friendlyName": "proj-03"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-04",
+      "numericId": "100004",
+      "projectReference": {
+        "projectId": "proj-04"
+      },
+      "friendlyName": "proj-04"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-05",
+      "numericId": "100005",
+      "projectReference": {
+        "projectId": "proj-05"
+      },
+      "friendlyName": "proj-05"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-06",
+      "numericId": "100006",
+      "projectReference": {
+        "projectId": "proj-06"
+      },
+      "friendlyName": "proj-06"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-07",
+      "numericId": "100007",
+      "projectReference": {
+        "projectId": "proj-07"
+      },
+      "friendlyName": "proj-07"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-08",
+      "numericId": "100008",
+      "projectReference": {
+        "projectId": "proj-08"
+      },
+      "friendlyName": "proj-08"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-09",
+      "numericId": "100009",
+      "projectReference": {
+        "projectId": "proj-09"
+      },
+      "friendlyName": "proj-09"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-10",
+      "numericId": "100010",
+      "projectReference": {
+        "projectId": "proj-10"
+      },
+      "friendlyName": "proj-10"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-11",
+      "numericId": "100011",
+      "projectReference": {
+        "projectId": "proj-11"
+      },
+      "friendlyName": "proj-11"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-12",
+      "numericId": "100012",
+      "projectReference": {
+        "projectId": "proj-12"
+      },
+      "friendlyName": "proj-12"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-13",
+      "numericId": "100013",
+      "projectReference": {
+        "projectId": "proj-13"
+      },
+      "friendlyName": "proj-13"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-14",
+      "numericId": "100014",
+      "projectReference": {
+        "projectId": "proj-14"
+      },
+      "friendlyName": "proj-14"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-15",
+      "numericId": "100015",
+      "projectReference": {
+        "projectId": "proj-15"
+      },
+      "friendlyName": "proj-15"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-16",
+      "numericId": "100016",
+      "projectReference": {
+        "projectId": "proj-16"
+      },
+      "friendlyName": "proj-16"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-17",
+      "numericId": "100017",
+      "projectReference": {
+        "projectId": "proj-17"
+      },
+      "friendlyName": "proj-17"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-18",
+      "numericId": "100018",
+      "projectReference": {
+        "projectId": "proj-18"
+      },
+      "friendlyName": "proj-18"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-19",
+      "numericId": "100019",
+      "projectReference": {
+        "projectId": "proj-19"
+      },
+      "friendlyName": "proj-19"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-20",
+      "numericId": "100020",
+      "projectReference": {
+        "projectId": "proj-20"
+      },
+      "friendlyName": "proj-20"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-21",
+      "numericId": "100021",
+      "projectReference": {
+        "projectId": "proj-21"
+      },
+      "friendlyName": "proj-21"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-22",
+      "numericId": "100022",
+      "projectReference": {
+        "projectId": "proj-22"
+      },
+      "friendlyName": "proj-22"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-23",
+      "numericId": "100023",
+      "projectReference": {
+        "projectId": "proj-23"
+      },
+      "friendlyName": "proj-23"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-24",
+      "numericId": "100024",
+      "projectReference": {
+        "projectId": "proj-24"
+      },
+      "friendlyName": "proj-24"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-25",
+      "numericId": "100025",
+      "projectReference": {
+        "projectId": "proj-25"
+      },
+      "friendlyName": "proj-25"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-26",
+      "numericId": "100026",
+      "projectReference": {
+        "projectId": "proj-26"
+      },
+      "friendlyName": "proj-26"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-27",
+      "numericId": "100027",
+      "projectReference": {
+        "projectId": "proj-27"
+      },
+      "friendlyName": "proj-27"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-28",
+      "numericId": "100028",
+      "projectReference": {
+        "projectId": "proj-28"
+      },
+      "friendlyName": "proj-28"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-29",
+      "numericId": "100029",
+      "projectReference": {
+        "projectId": "proj-29"
+      },
+      "friendlyName": "proj-29"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "proj-30",
+      "numericId": "100030",
+      "projectReference": {
+        "projectId": "proj-30"
+      },
+      "friendlyName": "proj-30"
+    },
+    {
+      "kind": "bigquery#project",
+      "id": "events-prod",
+      "numericId": "999",
+      "projectReference": {
+        "projectId": "events-prod"
+      },
+      "friendlyName": "events-prod"
+    }
+  ],
+  "totalItems": 31
+}

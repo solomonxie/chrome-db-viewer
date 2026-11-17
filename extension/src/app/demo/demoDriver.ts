@@ -4,7 +4,7 @@
 
 import type {
   ApplyResult, Capabilities, Cell, ChangeSet, Column, ConnectionConfig, Driver, ExecuteSummary,
-  ObjectNode, ObjectPath, ResultPage, Statement, TableSchema,
+  ObjectNode, ObjectPath, ObjectCatalog, ResultPage, Statement, TableSchema,
 } from "@core/types";
 import { DriverError } from "@core/types";
 import { postgresDialect, previewChangeSet } from "@core/sql";
@@ -223,6 +223,16 @@ export class DemoDriver implements Driver {
   private ensure() {
     if (!this.connected) throw new DriverError("Not connected");
   }
+
+  async listAllObjects(signal?: AbortSignal): Promise<ObjectCatalog> {
+    this.ensure();
+    await sleep(this.latency / 2, signal);
+    if (this.fileName) return { objects: [] };
+    return {
+      objects: [...this.tables.values()].map((t) => ({ path: ["public", t.view ? "views" : "tables", t.name], name: t.name, type: t.view ? "view" : "table", hasChildren: false, meta: "public" })),
+    };
+  }
+
 
   private table(path: ObjectPath | string[]): DemoTable {
     const name = path.at(-1) ?? "";

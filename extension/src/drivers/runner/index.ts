@@ -9,7 +9,7 @@
 import { RUNNER_HOST, PROTOCOL_VERSION } from "@core/runner-protocol";
 import type { RunnerConnectConfig, RunnerMessage, RunnerRequest } from "@core/runner-protocol";
 import { buildChangeSet, postgresDialect, qualified } from "@core/sql";
-import { DriverError } from "@core/types";
+import { collect, DriverError } from "@core/types";
 import type {
   ApplyResult,
   Capabilities,
@@ -22,6 +22,7 @@ import type {
   DriverId,
   ExecuteSummary,
   ObjectNode,
+  ObjectCatalog,
   ObjectPath,
   ResultPage,
   SqlDialect,
@@ -258,6 +259,22 @@ export class RunnerDriver implements Driver {
     return expectType(msg, "objects").nodes as ObjectNode[];
   }
 
+  /** Postgres: every table, view and materialized view in pg_class; paths are the tree's [schema, group, name]. */
+  async listAllObjects(signal?: AbortSignal): Promise<ObjectCatalog> {
+    if (this.driverId !== "postgres") return { objects: [] };
+    const sql =
+      "select n.nspname, c.relname, c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace " +
+      "where c.relkind in ('r','p','f','v','m') and n.nspname not like 'pg\\_toast%' and n.nspname not like 'pg\\_temp\\_%' " +
+      "order by (n.nspname in ('pg_catalog','information_schema')), n.nspname, c.relname";
+    const { rows } = await collect(this.execute({ sql }, signal));
+    const objects = rows.map(([schema, name, kind]): ObjectNode => {
+      const [group, type] = PG_KINDS[String(kind)] ?? ["tables", "table"];
+      return { path: [String(schema), group, String(name)], name: String(name), type, hasChildren: false, meta: String(schema) };
+    });
+    return { objects };
+  }
+
+
   async describe(path: ObjectPath, signal?: AbortSignal): Promise<TableSchema> {
     const msg = await this.requirePort().call({ op: "describe", path }, signal);
     const schema = expectType(msg, "schema").schema as TableSchema;
@@ -413,6 +430,15 @@ export class RunnerDriver implements Driver {
     return type;
   }
 }
+
+/** pg_class.relkind → the tree's group and node type. */
+const PG_KINDS: Record<string, [string, ObjectNode["type"]]> = {
+  r: ["tables", "table"],
+  p: ["tables", "table"],
+  f: ["tables", "table"],
+  v: ["views", "view"],
+  m: ["matviews", "materialized_view"],
+};
 
 /** Tree paths are [schema, group, name]; SQL wants "schema"."name". */
 function pgTableName(path: ObjectPath): string {
